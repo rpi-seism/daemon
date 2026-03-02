@@ -3,13 +3,13 @@ import signal
 from queue import Queue
 from pathlib import Path
 from threading import Event
-from logging import getLogger
+import logging
 
 from src.settings import Settings
 from src.jobs import Reader, MSeedWriter, WebSocketSender, TriggerProcessor, NotifierSender
 
 
-logger = getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 
 def main():

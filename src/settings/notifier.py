@@ -1,6 +1,6 @@
-from pydantic import BaseModel, AnyUrl
+from pydantic import BaseModel
 
 
 class Notifier(BaseModel):
-    url: AnyUrl
+    url: str
     enabled: bool = True

@@ -11,6 +11,7 @@ from gpiozero import OutputDevice, Device
 
 from src.settings import Settings
 from src.structs.sample import Sample
+from src.structs.mcu_settings import MCUSettingsFrame
 
 logger = getLogger(__name__)
 
@@ -106,7 +107,6 @@ class Reader(Thread):
     def _sendSettings(self, ser: serial.Serial):
         time.sleep(2)   # Wait to arduino to reboot
         sent_bytes = self.settings.mcu.to_bytes  # This should be your 6-byte packet
-        Sample.PACKET_SIZE = len(sent_bytes)
 
         logger.info("Sending settings to MCU: %s", sent_bytes.hex(' '))
 
@@ -124,14 +124,14 @@ class Reader(Thread):
         start_time = time.time()
 
         while (time.time() - start_time) < 10:
-            if ser.in_waiting >= Sample.PACKET_SIZE:
+            if ser.in_waiting >= MCUSettingsFrame.PACKET_SIZE:
                 # Check for header alignment
                 potential_header = ser.read(1)
                 if potential_header == b'\xcc':
                     next_byte = ser.read(1)
                     if next_byte == b'\xdd':
-                        # We found the start! Read the remaining bytes (Sample.PACKET_SIZE - 2)
-                        remaining = ser.read(Sample.PACKET_SIZE - 2)
+                        # We found the start! Read the remaining bytes (MCUSettingsFrame.PACKET_SIZE - 2)
+                        remaining = ser.read(MCUSettingsFrame.PACKET_SIZE - 2)
                         response = potential_header + next_byte + remaining
                         break
                 # If not header, continue loop to effectively "drain" garbage bytes
