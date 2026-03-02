@@ -3,7 +3,6 @@ from queue import Queue
 from logging import getLogger
 
 import time
-import struct
 
 import serial
 from gpiozero.pins.mock import MockFactory
@@ -39,7 +38,7 @@ class Reader(Thread):
         except BadPinFactory:
             Device.pin_factory = MockFactory()
             self.max485_control = OutputDevice(5, active_high=True, initial_value=False)
-        
+
         self.channels = self.__map_channels()
 
     def run(self):
