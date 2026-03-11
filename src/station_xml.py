@@ -142,13 +142,6 @@ def _build_inventory(settings: Settings) -> Inventory:
     )
 
 
-class StationXMLEpochError(Exception):
-    """
-    Raised when instrument settings have changed but start_date has not been
-    updated. A new start_date is required to open a new response epoch.
-    """
-
-
 def _read_sidecar(fingerprint_path: Path) -> dict:
     """Read the JSON sidecar file {fingerprint, start_date}."""
     return json.loads(fingerprint_path.read_text())

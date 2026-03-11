@@ -9,6 +9,7 @@ from gpiozero.pins.mock import MockFactory
 from gpiozero.exc import BadPinFactory
 from gpiozero import OutputDevice, Device
 
+from exception.mcu_no_response import MCUNoResponse
 from src.settings import Settings
 from src.structs.sample import Sample
 from src.structs.mcu_settings import MCUSettingsFrame
@@ -48,7 +49,7 @@ class Reader(Thread):
                 logger.info("Connected to RS-485 on %s at %d", self.port, self.baudrate)
 
                 if not self._sendSettings(ser):
-                    raise Exception("MCU failed to respond")
+                    raise MCUNoResponse("MCU did not respond to settings update.")
 
                 # Buffer to store incoming bytes
                 buffer = bytearray()
