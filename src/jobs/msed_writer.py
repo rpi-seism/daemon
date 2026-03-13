@@ -12,8 +12,6 @@ from src.settings import Settings
 
 logger = getLogger(__name__)
 
-_LOCATION_CODE = "00"
-
 
 class MSeedWriter(Thread):
     """
@@ -110,6 +108,7 @@ class MSeedWriter(Thread):
         sampling_rate = self.settings.mcu.sampling_rate
         network = self.settings.station.network
         station = self.settings.station.station
+        location_code = self.settings.station.location_code
 
         for ch_name, values in self._buffer.items():
             if not values:
@@ -124,7 +123,7 @@ class MSeedWriter(Thread):
                 trace = Trace(data=raw)
                 trace.stats.network      = network
                 trace.stats.station      = station
-                trace.stats.location     = _LOCATION_CODE
+                trace.stats.location     = location_code
                 trace.stats.channel      = ch_name
                 trace.stats.starttime    = slice_start
                 trace.stats.sampling_rate = sampling_rate

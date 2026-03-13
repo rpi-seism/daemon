@@ -9,6 +9,7 @@ from .channel import Channel
 from .mcu_settings import MCUSettings
 from .notifier import Notifier
 from .station import Station
+from .trigger import Trigger
 
 
 class Settings(BaseModel):
@@ -24,6 +25,7 @@ class Settings(BaseModel):
     channels: list[Channel]
     mcu: MCUSettings
     notifiers: list[Notifier]
+    trigger: Trigger
 
     def export_settings(self):
         """
@@ -83,6 +85,7 @@ class Settings(BaseModel):
             "start_date": datetime.now(tz=UTC).isoformat(),
             "decimation_factor": 4,
             "station": {
+                "location_code": "00",
                 "network": "XX",
                 "station": "RPI3",
                 "latitude": 0.0,
@@ -116,7 +119,14 @@ class Settings(BaseModel):
                     "url": "tgram://{bot_token}/{chat_id}/",
                     "enabled": True
                 }
-            ]
+            ],
+            "trigger": {
+                "sta_sec": 0.5,
+                "lta_sec": 10.0,
+                "thr_on": 3.5,
+                "thr_off": 1.5,
+                "trigger_channel": "EHZ"
+            }
         }
 
         return cls(**data)
