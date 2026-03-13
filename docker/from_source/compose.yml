@@ -1,0 +1,15 @@
+services:
+  rpi-seism:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+
+    ports:
+      - 8765:8765
+    volumes:
+      - ./data:/app/data
+    devices:
+      - /dev/ttyUSB0:/dev/ttyUSB0   # adjust to your port (ttyUSB0, ttyS0, etc.)
+    group_add:
+      - dialout                      # grants serial port access without root
+    restart: unless-stopped

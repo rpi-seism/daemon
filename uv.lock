@@ -843,7 +843,7 @@ wheels = [
 [[package]]
 name = "rpi-seism"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "apprise" },
     { name = "gpiozero" },

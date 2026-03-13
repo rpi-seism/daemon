@@ -73,7 +73,7 @@ def main():
     )
     websocket_job.start()
 
-    # Create and start the TriggerProcessor job thread (sends data over WebSocket)
+    # Create and start the TriggerProcessor job thread (processes data for earthquake detection)
     trigger_processor_job = TriggerProcessor(
         settings,
         trigger_queue,
@@ -82,7 +82,7 @@ def main():
     )
     trigger_processor_job.start()
 
-        # Create and start the TriggerProcessor job thread (sends data over WebSocket)
+        # Create and start the NotifierSender job thread (sends earthquake notifications)
     notifier_job = NotifierSender(
         settings,
         notifier_queue,
