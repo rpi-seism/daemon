@@ -31,15 +31,15 @@ class TriggerProcessor(Thread):
 
         # Configuration from settings
         self.sampling_rate = settings.mcu.sampling_rate
-        self.trigger_channel = "EHZ"
+        self.trigger_channel = settings.jobs_settings.trigger.trigger_channel
 
         # STA/LTA Window lengths in seconds
-        self.sta_sec = 0.5
-        self.lta_sec = 10.0
+        self.sta_sec = settings.jobs_settings.trigger.sta_sec
+        self.lta_sec = settings.jobs_settings.trigger.lta_sec
 
         # Trigger thresholds
-        self.thr_on = 3.5   # Ratio to trigger
-        self.thr_off = 1.5  # Ratio to clear trigger
+        self.thr_on = settings.jobs_settings.trigger.thr_on   # Ratio to trigger
+        self.thr_off = settings.jobs_settings.trigger.thr_off  # Ratio to clear trigger
 
         # Convert seconds to sample counts for ObsPy
         self.nsta = int(self.sta_sec * self.sampling_rate)

@@ -12,8 +12,6 @@ from src.settings import Settings
 
 logger = getLogger(__name__)
 
-_LOCATION_CODE = "00"
-
 
 class MSeedWriter(Thread):
     """
@@ -37,14 +35,13 @@ class MSeedWriter(Thread):
         data_queue: Queue,
         output_dir: Path,
         shutdown_event: Event,
-        earthquake_event: Event,
-        write_interval_sec: int = 1800,
+        earthquake_event: Event
     ):
         super().__init__()
         self.settings = settings
         self.data_queue = data_queue
         self.output_dir = output_dir
-        self.write_interval_sec = write_interval_sec
+        self.write_interval_sec = settings.jobs_settings.writer.write_interval_sec
         self.shutdown_event = shutdown_event
         self.earthquake_event = earthquake_event
 
@@ -110,6 +107,7 @@ class MSeedWriter(Thread):
         sampling_rate = self.settings.mcu.sampling_rate
         network = self.settings.station.network
         station = self.settings.station.station
+        location_code = self.settings.station.location_code
 
         for ch_name, values in self._buffer.items():
             if not values:
@@ -124,7 +122,7 @@ class MSeedWriter(Thread):
                 trace = Trace(data=raw)
                 trace.stats.network      = network
                 trace.stats.station      = station
-                trace.stats.location     = _LOCATION_CODE
+                trace.stats.location     = location_code
                 trace.stats.channel      = ch_name
                 trace.stats.starttime    = slice_start
                 trace.stats.sampling_rate = sampling_rate

@@ -45,7 +45,6 @@ def main():
 
     # Create and start the Reader job thread (reads from ADC, puts data in the queues)
     reader_job = Reader(
-        "/dev/ttyUSB0",
         settings,
         [msed_writer_queue, websocket_queue, trigger_queue, notifier_queue],
         shutdown_event
@@ -59,7 +58,6 @@ def main():
         data_base_folder,
         shutdown_event,
         earthquake_event,
-        write_interval_sec=1800
     )
     m_seed_writer_job.start()
 

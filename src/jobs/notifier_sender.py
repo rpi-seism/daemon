@@ -143,6 +143,6 @@ class NotifierSender(Thread):
             )
 
     def _initialize_notifier(self):
-        for i in self.settings.notifiers:
+        for i in self.settings.jobs_settings.notifiers:
             if i.enabled:
                 self.notifier.add(i.url)

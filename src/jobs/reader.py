@@ -18,17 +18,17 @@ logger = getLogger(__name__)
 
 
 class Reader(Thread):
-    def __init__(self, port: str, settings: Settings, queues: list[Queue], shutdown_event: Event):
+    def __init__(self, settings: Settings, queues: list[Queue], shutdown_event: Event):
         """
         Thread that continuously reads from the RS-485 serial port,
         processes incoming packets, and distributes data to queues.
         """
         super().__init__()
-        self.port = port
+        self.port = settings.jobs_settings.reader.port
         self.settings = settings
         self.queues = queues
         self.shutdown_event = shutdown_event
-        self.baudrate = 250000
+        self.baudrate = settings.jobs_settings.reader.baudrate
         self.heartbeat_interval = 0.5  # Send pulse every 500ms
         self.last_heartbeat = 0
 
