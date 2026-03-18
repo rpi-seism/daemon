@@ -71,13 +71,13 @@ class NotifierSender(Thread):
         """Waits for post-event data, generates graph, and sends."""
         # Record how many more samples we need to finish the 'after' window
         # (Already have 60s in buffer, need 60s more)
-        target_count = len(self.buffer) + self.points_per_window
+        received = 0
 
-        # Wait until buffer has the full 120s or shutdown occurs
-        while len(self.buffer) < target_count and not self.shutdown_event.is_set():
+        while received < self.points_per_window and not self.shutdown_event.is_set():
             try:
                 data = self.queue.get(timeout=1.0)
                 self.buffer.append(data)
+                received += 1
             except Exception:
                 continue
 
