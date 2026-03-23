@@ -127,7 +127,7 @@ class MSeedWriter(Thread):
                 trace.stats.starttime    = slice_start
                 trace.stats.sampling_rate = sampling_rate
 
-                path = sds_path(self.output_dir, network, station, ch_name, slice_start)
+                path = sds_path(self.output_dir, network, station, location_code, ch_name, slice_start)
                 path.parent.mkdir(parents=True, exist_ok=True)
 
                 stream = Stream([trace])

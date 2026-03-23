@@ -5,11 +5,9 @@ from obspy import UTCDateTime
 
 logger = getLogger(__name__)
 
-_LOCATION_CODE = "00"
-
 
 def sds_path(archive_root: Path, network: str, station: str,
-              channel: str, t: UTCDateTime) -> Path:
+              location_code: str, channel: str, t: UTCDateTime) -> Path:
     """
     Returns the SDS file path for a given channel and UTC time.
 
@@ -20,7 +18,7 @@ def sds_path(archive_root: Path, network: str, station: str,
         archive/2026/XX/RPI3/EHZ.D/XX.RPI3.00.EHZ.D.2025.069
     """
     filename = (
-        f"{network}.{station}.{_LOCATION_CODE}.{channel}"
+        f"{network}.{station}.{location_code}.{channel}"
         f".D.{t.year}.{t.julday:03d}"
     )
     return archive_root / "archive" / str(t.year) / network / station / f"{channel}.D" / filename
