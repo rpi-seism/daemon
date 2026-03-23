@@ -2,6 +2,8 @@ from typing import Dict
 from dataclasses import dataclass
 import struct
 
+from binascii import crc32
+
 from rpi_seism_common.settings.channel import Channel
 
 
@@ -12,10 +14,10 @@ class Sample:
     ch0: int
     ch1: int
     ch2: int
-    checksum: int
+    crc: int
 
     # The format string for struct (little-endian, unsigned chars and ints)
-    PACKET_FORMAT = "<BBiiiB"
+    PACKET_FORMAT = "<BBiiiI"
     PACKET_SIZE = struct.calcsize(PACKET_FORMAT)
 
     @classmethod
@@ -40,16 +42,26 @@ class Sample:
         """
         Convert the Sample instance to bytes for transmission or storage.
         """
-        return struct.pack(self.PACKET_FORMAT, self.header_1, self.header_2, self.ch0, self.ch1, self.ch2, self.checksum)
+        return struct.pack(self.PACKET_FORMAT, self.header_1, self.header_2, self.ch0, self.ch1, self.ch2, self.crc)
 
-    def verify_checksum(self, data: bytes):
+    def verify_checksum(self, data: bytes) -> bool:
         """
-        Verify that the checksum matches based on the XOR of all fields except the checksum itself.
+        Verify that the transmitted CRC matches the CRC32 of the data payload.
+        The payload is everything EXCEPT the last 4 bytes (the CRC itself).
         """
-        calculated = 0
-        for b in data[:-1]:
-            calculated ^= b
-        return calculated == data[-1]
+        if len(data) != self.PACKET_SIZE:
+            return False
+
+        # Extract the payload (Headers + Channels = first 14 bytes)
+        payload = data[:-4]
+
+        # Extract the transmitted CRC from the last 4 bytes
+        transmitted_crc = struct.unpack("<I", data[-4:])[0]
+
+        # Calculate CRC32 of the payload
+        calculated_crc = crc32(payload) & 0xFFFFFFFF
+
+        return calculated_crc == transmitted_crc
 
     def to_dict(self, timestamp: int, channels: Dict[int, Channel]):
         return {
