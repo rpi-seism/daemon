@@ -644,14 +644,14 @@ wheels = [
 
 [[package]]
 name = "pyaml"
-version = "25.7.0"
+version = "26.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c4/01/41f63d66a801a561c9e335523516bd5f761bc43cc61f8b75918306bf2da8/pyaml-25.7.0.tar.gz", hash = "sha256:e113a64ec16881bf2b092e2beb84b7dcf1bd98096ad17f5f14e8fb782a75d99b", size = 29814, upload-time = "2025-07-10T18:44:51.824Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/fb/2b9590512a9d7763620d87171c7531d5295678ce96e57393614b91da8998/pyaml-26.2.1.tar.gz", hash = "sha256:489dd82997235d4cfcf76a6287fce2f075487d77a6567c271e8d790583690c68", size = 30653, upload-time = "2026-02-06T13:49:30.769Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/ee/a878f2ad010cbccb311f947f0f2f09d38f613938ee28c34e60fceecc75a1/pyaml-25.7.0-py3-none-any.whl", hash = "sha256:ce5d7867cc2b455efdb9b0448324ff7b9f74d99f64650f12ca570102db6b985f", size = 26418, upload-time = "2025-07-10T18:44:50.679Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/f3/1f8651f23101e6fae41d0d504414c9722b0140bf0fc6acf87ac52e18aa41/pyaml-26.2.1-py3-none-any.whl", hash = "sha256:6261c2f0a2f33245286c794ad6ec234be33a73d2b05427079fd343e2812a87cf", size = 27211, upload-time = "2026-02-06T13:49:29.652Z" },
 ]
 
 [[package]]
@@ -825,9 +825,8 @@ dependencies = [
     { name = "obspy" },
     { name = "pandas" },
     { name = "plotly" },
-    { name = "pyaml" },
-    { name = "pydantic" },
     { name = "pyserial" },
+    { name = "rpi-seism-common" },
     { name = "websockets" },
 ]
 
@@ -837,10 +836,18 @@ requires-dist = [
     { name = "obspy", specifier = ">=1.4.2" },
     { name = "pandas", specifier = ">=3.0.1" },
     { name = "plotly", specifier = ">=6.5.2" },
-    { name = "pyaml", specifier = ">=25.7.0" },
-    { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pyserial", specifier = ">=3.5" },
+    { name = "rpi-seism-common", git = "https://github.com/rpi-seism/rpi-seism-common.git?branch=main" },
     { name = "websockets", specifier = ">=16.0" },
+]
+
+[[package]]
+name = "rpi-seism-common"
+version = "1.0.0"
+source = { git = "https://github.com/rpi-seism/rpi-seism-common.git?branch=main#af431bf6fd9877d9caff6e5feffeadff39d5c00d" }
+dependencies = [
+    { name = "pyaml" },
+    { name = "pydantic" },
 ]
 
 [[package]]

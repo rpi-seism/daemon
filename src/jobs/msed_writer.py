@@ -6,9 +6,9 @@ from logging import getLogger
 
 from obspy import read, Stream, Trace, UTCDateTime
 import numpy as np
+from rpi_seism_common.settings import Settings
 
 from src.utils.writer_utils import sds_path, split_buffer_at_midnight
-from src.settings import Settings
 
 logger = getLogger(__name__)
 

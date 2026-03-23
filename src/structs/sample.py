@@ -2,7 +2,7 @@ from typing import Dict
 from dataclasses import dataclass
 import struct
 
-from src.settings.channel import Channel
+from rpi_seism_common.settings.channel import Channel
 
 
 @dataclass

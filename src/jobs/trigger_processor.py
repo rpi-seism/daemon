@@ -7,10 +7,11 @@ import numpy as np
 
 # ObsPy's recursive STA/LTA is faster and better for continuous data
 from obspy.signal.trigger import recursive_sta_lta
+from rpi_seism_common.settings import Settings
 
-from src.settings import Settings
 
 logger = getLogger(__name__)
+
 
 class TriggerProcessor(Thread):
     """

@@ -8,10 +8,11 @@ import asyncio
 import numpy as np
 import websockets
 from obspy import UTCDateTime, Trace
+from rpi_seism_common.settings import Settings
 
-from src.settings import Settings
 
 logger = getLogger(__name__)
+
 
 class WebSocketSender(Thread):
     """Thread that serves a WebSocket endpoint to broadcast decimated seismic data

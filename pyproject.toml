@@ -9,10 +9,9 @@ dependencies = [
     "obspy>=1.4.2",
     "pandas>=3.0.1",
     "plotly>=6.5.2",
-    "pyaml>=25.7.0",
-    "pydantic>=2.12.5",
     "pyserial>=3.5",
     "websockets>=16.0",
+    "rpi-seism-common",
 ]
 
 [project.scripts]
@@ -27,3 +26,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+[tool.uv.sources]
+rpi-seism-common = { git = "https://github.com/rpi-seism/rpi-seism-common.git", branch = "main" }

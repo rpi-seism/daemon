@@ -2,12 +2,11 @@ from threading import Thread, Event
 from queue import Queue
 from logging import getLogger
 
+from rpi_seism_common.settings import Settings
 import time
-
 import serial
 
 from src.exception.mcu_no_response import MCUNoResponse
-from src.settings import Settings
 from src.structs.sample import Sample
 from src.structs.mcu_settings import MCUSettingsFrame
 
@@ -93,7 +92,7 @@ class Reader(Thread):
 
     def _sendSettings(self, ser: serial.Serial):
         time.sleep(2)   # Wait to arduino to reboot
-        sent_bytes = self.settings.mcu.to_bytes  # This should be your 6-byte packet
+        sent_bytes = MCUSettingsFrame.from_settings(self.settings).to_bytes()  # This should be your 6-byte packet
 
         logger.info("Sending settings to MCU: %s", sent_bytes.hex(' '))
 

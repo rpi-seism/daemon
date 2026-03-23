@@ -1,5 +1,9 @@
+from typing import Tuple
+
 from dataclasses import dataclass
 import struct
+
+from rpi_seism_common.settings import Settings
 
 
 @dataclass
@@ -15,7 +19,7 @@ class MCUSettingsFrame:
     PACKET_SIZE = struct.calcsize(PACKET_FORMAT)
 
     @classmethod
-    def from_bytes(cls, data: bytes):
+    def from_bytes(cls, data: bytes) -> Tuple["MCUSettingsFrame", bool]:
         """
         Convert raw bytes to a Sample instance and verify checksum.
         Assumes that the data is already validated (correct length, headers, etc.).
@@ -31,6 +35,19 @@ class MCUSettingsFrame:
 
         # Verify checksum
         return sample, sample.verify_checksum(data)
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "MCUSettingsFrame":
+        """
+        Convert settings into an MCUSettingsFrame
+        """
+        return cls(
+            0xCC,
+            0xDD,
+            settings.mcu.sampling_rate,
+            settings.mcu.adc_gain,
+            settings.mcu.adc_sample_rate
+        )
 
     def to_bytes(self):
         """

@@ -15,8 +15,8 @@ from obspy.core.inventory import (
     Site,
     Station,
 )
+from rpi_seism_common.settings import Settings
 
-from src.settings import Settings
 from src.exception.station_xml_epoch_error import StationXMLEpochError
 
 

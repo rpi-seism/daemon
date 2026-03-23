@@ -14,7 +14,8 @@ from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import pandas as pd
 
-from src.settings import Settings
+from rpi_seism_common.settings import Settings
+
 
 logger = getLogger(__name__)
 

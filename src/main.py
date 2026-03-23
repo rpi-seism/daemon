@@ -5,9 +5,10 @@ from pathlib import Path
 from threading import Event
 import logging
 
+from rpi_seism_common.settings import Settings
+
 from src.logger import configure_logger
 from src.station_xml import ensure_station_xml
-from src.settings import Settings
 from src.jobs import Reader, MSeedWriter, WebSocketSender, TriggerProcessor, NotifierSender
 
 
@@ -23,7 +24,7 @@ def main():
     """
     # Define paths and load settings
     data_base_folder = Path(__file__).parent.parent / "data"
-    settings = Settings.load_settings()
+    settings = Settings.load_settings(data_base_folder / "config.yml")
     configure_logger(data_base_folder)  # Initialize logging after loading settings
     ensure_station_xml(settings, data_base_folder / "station.xml")
 
