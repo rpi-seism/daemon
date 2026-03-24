@@ -6,10 +6,11 @@ from logging import getLogger
 import time
 from datetime import datetime
 
-from tempfile import TemporaryDirectory
 from pathlib import Path
 
 from apprise import Apprise, NotifyFormat
+from apprise.attachment import AttachMemory
+
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 import pandas as pd
@@ -127,21 +128,16 @@ class NotifierSender(Thread):
     def _send_notification(self, image_stream):
         """Sends the notification with the attached graph."""
         # Apprise allows attaching file streams
-        with TemporaryDirectory() as temp_dir:
-            temp_dir_path = Path(temp_dir)
-            temp_file = temp_dir_path / "trace.html"
-
-            with open(temp_file, "wb") as f:
-                f.write(image_stream.getvalue())
-                f.flush()
-                f.seek(0)
-
-            self.notifier.notify(
-                title="⚠️ Earthquake Alert",
-                body="Seismic activity exceeded threshold. See attached waveform.",
-                attach=str(temp_file),  # TY Apprise for NOT working correctly with in memory streams :(
-                body_format=NotifyFormat.MARKDOWN
-            )
+        self.notifier.notify(
+            title="⚠️ Earthquake Alert",
+            body="Seismic activity exceeded threshold. See attached waveform.",
+            attach=AttachMemory(
+                content=image_stream.getvalue(),
+                name="report.html",
+                mimetype="text/html",
+            ),
+            body_format=NotifyFormat.MARKDOWN
+        )
 
     def _initialize_notifier(self):
         for i in self.settings.jobs_settings.notifiers:
