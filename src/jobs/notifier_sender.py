@@ -6,10 +6,8 @@ from logging import getLogger
 import time
 from datetime import datetime
 
-from pathlib import Path
-
 from apprise import Apprise, NotifyFormat
-from apprise.attachment import AttachMemory
+from apprise.attachment.memory import AttachMemory
 
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
