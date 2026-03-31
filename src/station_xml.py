@@ -50,6 +50,7 @@ def _fingerprint(settings: Settings) -> str:
                 "name":        ch.name,
                 "orientation": ch.orientation,
                 "sensitivity": ch.sensitivity,
+                "analog_gain": ch.analog_gain
             }
             for ch in sorted(settings.channels, key=lambda c: c.name)
         ],
@@ -58,9 +59,9 @@ def _fingerprint(settings: Settings) -> str:
     return hashlib.sha256(blob).hexdigest()
 
 
-def _build_channel_response(settings: Settings, sensitivity: float) -> Response:
+def _build_channel_response(settings: Settings, sensitivity: float, analog_gain: float) -> Response:
     counts_per_volt = (settings.mcu.adc_gain * 2**23) / settings.mcu.vref
-    total_sensitivity = sensitivity * counts_per_volt
+    total_sensitivity = sensitivity * analog_gain * counts_per_volt
 
     paz_stage = PolesZerosResponseStage(
         stage_sequence_number=1,
@@ -75,9 +76,17 @@ def _build_channel_response(settings: Settings, sensitivity: float) -> Response:
         poles=_GD45_POLES,
     )
 
-    # Plain gain stage — no filter, no decimation metadata required by evalresp
-    adc_stage = ResponseStage(
+    # NEW — instrumentation amplifier stage
+    amp_stage = ResponseStage(
         stage_sequence_number=2,
+        stage_gain=analog_gain,
+        stage_gain_frequency=0.0,
+        input_units="V",
+        output_units="V",
+    )
+
+    adc_stage = ResponseStage(
+        stage_sequence_number=3,    # ← was 2
         stage_gain=counts_per_volt,
         stage_gain_frequency=0.0,
         input_units="V",
@@ -93,7 +102,7 @@ def _build_channel_response(settings: Settings, sensitivity: float) -> Response:
             input_units_description="Velocity in meters per second",
             output_units_description="Digital counts",
         ),
-        response_stages=[paz_stage, adc_stage],
+        response_stages=[paz_stage, amp_stage, adc_stage],  # ← 3 stages
     )
 
 
@@ -108,7 +117,7 @@ def _build_inventory(settings: Settings) -> Inventory:
                 f"Must be one of: {list(_ORIENTATION_MAP)}"
             )
 
-        response = _build_channel_response(settings, ch.sensitivity)
+        response = _build_channel_response(settings, ch.sensitivity, ch.analog_gain)
 
         channels.append(
             Channel(
@@ -192,7 +201,7 @@ def _close_and_append_epochs(
                         f"Must be one of: {list(_ORIENTATION_MAP)}"
                     )
 
-                response = _build_channel_response(settings, ch.sensitivity)
+                response = _build_channel_response(settings, ch.sensitivity, ch.analog_gain)
 
                 station.channels.append(
                     Channel(

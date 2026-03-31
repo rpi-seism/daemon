@@ -889,7 +889,7 @@ requires-dist = [
 [[package]]
 name = "rpi-seism-common"
 version = "1.1.0"
-source = { git = "https://github.com/rpi-seism/rpi-seism-common.git?branch=main#c3ba3bee2297a45961d529c856ba00f0f12ef06a" }
+source = { git = "https://github.com/rpi-seism/rpi-seism-common.git?branch=main#e28448efef88adfa72b1893ad1880a17b6959eca" }
 dependencies = [
     { name = "pyaml" },
     { name = "pydantic" },
