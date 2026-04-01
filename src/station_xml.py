@@ -15,6 +15,7 @@ from obspy.core.inventory import (
     Site,
     Station,
 )
+from obspy.signal.invsim import corn_freq_2_paz
 from rpi_seism_common.settings import Settings
 
 from src.exception.station_xml_epoch_error import StationXMLEpochError
@@ -22,10 +23,10 @@ from src.exception.station_xml_epoch_error import StationXMLEpochError
 
 logger = logging.getLogger(__name__)
 
-# Standard GD-4.5 poles and zeros (Laplace, rad/s)
-_GD45_POLES = [complex(-14.07, 17.32), complex(-14.07, -17.32)]
-_GD45_ZEROS = [complex(0, 0), complex(0, 0)]
+# GD-4.5 physical parameters
+# Adjust _GD45_DAMPING if you have an external load resistor on the geophone
 _GD45_NATURAL_FREQ = 4.5  # Hz
+_GD45_DAMPING = 0.6
 
 _ORIENTATION_MAP = {
     "vertical": {"azimuth": 0.0,  "dip": -90.0},
@@ -63,6 +64,9 @@ def _build_channel_response(settings: Settings, sensitivity: float, analog_gain:
     counts_per_volt = (settings.mcu.adc_gain * 2**23) / settings.mcu.vref
     total_sensitivity = sensitivity * analog_gain * counts_per_volt
 
+    # Compute PAZ analytically from f0 and damping via ObsPy.
+    paz = corn_freq_2_paz(fc=_GD45_NATURAL_FREQ, damp=_GD45_DAMPING)
+
     paz_stage = PolesZerosResponseStage(
         stage_sequence_number=1,
         stage_gain=sensitivity,
@@ -71,9 +75,9 @@ def _build_channel_response(settings: Settings, sensitivity: float, analog_gain:
         output_units="V",
         pz_transfer_function_type="LAPLACE (RADIANS/SECOND)",
         normalization_frequency=_GD45_NATURAL_FREQ,
-        normalization_factor=1.0,
-        zeros=_GD45_ZEROS,
-        poles=_GD45_POLES,
+        normalization_factor=paz['gain'],
+        zeros=paz['zeros'],
+        poles=paz['poles'],
     )
 
     # NEW — instrumentation amplifier stage
