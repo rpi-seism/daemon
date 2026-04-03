@@ -11,8 +11,12 @@ from obspy import UTCDateTime, Trace
 from rpi_seism_common.settings import Settings
 from rpi_seism_common.websocket_message import WebsocketMessage
 
+from src.utils.soh_tracker import SOHTracker
+
 from src.ws_messages.sample.sample import Sample
 from src.ws_messages.sample.sample_payload import SamplePayload
+from src.ws_messages.state_of_health.state_of_health import StateOfHealth
+from src.ws_messages.state_of_health.state_of_health_payload import StateOfHealthPayload
 
 
 logger = getLogger(__name__)
@@ -29,6 +33,7 @@ class WebSocketSender(Thread):
         data_queue: Queue,
         shutdown_event: Event,
         earthquake_event: Event,
+        soh_tracker: SOHTracker,
         host: str = "0.0.0.0",
         port: int = 8765
     ):
@@ -36,6 +41,7 @@ class WebSocketSender(Thread):
         self.data_queue = data_queue
         self.shutdown_event = shutdown_event
         self.earthquake_event = earthquake_event
+        self.soh_tracker = soh_tracker
         self.host = host
         self.port = port
         self.settings = settings
@@ -50,6 +56,10 @@ class WebSocketSender(Thread):
 
         # Per-channel state: { "EHZ": {"data": deque, "time": deque, "counter": 0}, ... }
         self.channels_state = {}
+
+        # SOH broadcast interval (seconds)
+        self.soh_interval = 5.0
+        self.last_soh_broadcast = 0.0
 
     def run(self):
         asyncio.run(self._main_loop())
@@ -93,10 +103,15 @@ class WebSocketSender(Thread):
                     state["time"].append(ts)
                     state["counter"] += 1
 
-                    # 3. Process every STEP_SIZE samples for THIS specific channel
-                    if (len(state["data"]) == self.window_size and 
+                    # process every STEP_SIZE samples for THIS specific channel
+                    if (len(state["data"]) == self.window_size and
                         state["counter"] % self.step_size == 0):
                         await self._process_and_broadcast(ch_name)
+
+                now = loop.time()
+                if now - self.last_soh_broadcast >= self.soh_interval:
+                    await self._broadcast_soh()
+                    self.last_soh_broadcast = now
 
             except Empty:
                 continue
@@ -137,10 +152,25 @@ class WebSocketSender(Thread):
 
         await self._broadcast(Sample(payload=message))
 
+    async def _broadcast_soh(self):
+        """Broadcast current State of Health metrics to all connected clients."""
+        snapshot = self.soh_tracker.get_snapshot()
+
+        payload = StateOfHealthPayload(
+            link_quality=snapshot["link_quality"],
+            bytes_dropped=snapshot["bytes_dropped"],
+            checksum_errors=snapshot["checksum_errors"],
+            last_seen=snapshot["last_seen"],
+            connected=snapshot["connected"]
+        )
+
+        message = StateOfHealth(payload=payload)
+        await self._broadcast(message)
+
     async def _broadcast(self, message: WebsocketMessage):
         if not self._clients:
             return
-        
+
         payload = message.to_json
 
         dead_clients = set()

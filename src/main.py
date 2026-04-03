@@ -9,6 +9,7 @@ from rpi_seism_common.settings import Settings
 
 from src.logger import configure_logger
 from src.station_xml import ensure_station_xml
+from src.utils.soh_tracker import SOHTracker
 from src.jobs import Reader, MSeedWriter, WebSocketSender, TriggerProcessor, NotifierSender
 
 
@@ -32,6 +33,9 @@ def main():
     shutdown_event = Event()
     earthquake_event = Event()
 
+     # Create SOH tracker (shared between Reader and WebSocketSender)
+    soh_tracker = SOHTracker()
+
     # Define a signal handler for systemd (SIGTERM)
     def handle_exit(sig, frame):
         logger.debug("Exit signal %s received. Shutting down...", sig)
@@ -50,7 +54,8 @@ def main():
     reader_job = Reader(
         settings,
         [msed_writer_queue, websocket_queue, trigger_queue, notifier_queue],
-        shutdown_event
+        shutdown_event,
+        soh_tracker
     )
     reader_job.start()
 
@@ -70,6 +75,7 @@ def main():
         websocket_queue,
         shutdown_event,
         earthquake_event,
+        soh_tracker,
         host="0.0.0.0"
     )
     websocket_job.start()

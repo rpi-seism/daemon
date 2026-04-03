@@ -10,20 +10,30 @@ from src.exception.mcu_no_response import MCUNoResponse
 from src.structs.sample import Sample
 from src.structs.mcu_settings import MCUSettingsFrame
 
+from src.utils.soh_tracker import SOHTracker
+
 logger = getLogger(__name__)
 
 
 class Reader(Thread):
-    def __init__(self, settings: Settings, queues: list[Queue], shutdown_event: Event):
-        """
-        Thread that continuously reads from the RS-422 serial port,
-        processes incoming packets, and distributes data to queues.
-        """
+    """
+    Thread that continuously reads from the RS-422 serial port,
+    processes incoming packets, and distributes data to queues.
+    """
+    def __init__(
+        self,
+        settings: Settings,
+        queues: list[Queue],
+        shutdown_event: Event,
+        soh_tracker: SOHTracker
+    ):
         super().__init__()
         self.port = settings.jobs_settings.reader.port
         self.settings = settings
         self.queues = queues
         self.shutdown_event = shutdown_event
+        self.soh_tracker = soh_tracker
+
         self.baudrate = settings.jobs_settings.reader.baudrate
         self.heartbeat_interval = 0.5  # Send pulse every 500ms
         self.last_heartbeat = 0
@@ -61,17 +71,22 @@ class Reader(Thread):
                             sample, checksum = Sample.from_bytes(packet_data)
                             if checksum:
                                 self._process_packet(sample)
+                                self.soh_tracker.record_success()
                                 del buffer[:Sample.PACKET_SIZE] # Remove processed packet
                             else:
                                 logger.warning("Checksum failed, shifting buffer")
+                                self.soh_tracker.record_checksum_error()
+                                self.soh_tracker.record_dropped_bytes(1)
                                 del buffer[0] # Slide window to find next header
                         else:
                             # Not a header, discard byte and keep looking
+                            self.soh_tracker.record_dropped_bytes(1)
                             del buffer[0]
 
         except Exception:
             logger.exception("RS-422 Reader exception")
         finally:
+            self.soh_tracker.set_disconnected()
             logger.info("RS-422 Reader stopped.")
             self.shutdown_event.set()
 
