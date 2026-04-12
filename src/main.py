@@ -10,10 +10,32 @@ from rpi_seism_common.settings import Settings
 from src.logger import configure_logger
 from src.station_xml import ensure_station_xml
 from src.utils.soh_tracker import SOHTracker
-from src.jobs import Reader, MSeedWriter, WebSocketSender, TriggerProcessor, NotifierSender
+from src.jobs import Reader, MSeedWriter, WebSocketSender, TriggerProcessor, NotifierSender, RingServerSender
 
 
 logger = logging.getLogger(__name__)
+
+
+def build_queues(settings: Settings) -> dict[str, Queue]:
+    """
+    Initializes communication queues based on the enabled flags in settings.
+    """
+    queues = {
+        "mseed": Queue(),
+        "websocket": Queue(),
+        "trigger": Queue(),
+        "notifier": Queue()
+    }
+
+    # Conditionally add the RingServer queue
+    # Adjust the attribute path (e.g., settings.ringserver.enabled) to match your Settings class
+    if settings.jobs_settings.ring_server.enabled:
+        queues["ringserver"] = Queue()
+        logger.info("Queue for RingServer created.")
+    else:
+        logger.info("RingServer is disabled; queue omitted.")
+
+    return queues
 
 
 def main():
@@ -28,6 +50,8 @@ def main():
     settings = Settings.load_settings(data_base_folder / "config.yml")
     configure_logger(data_base_folder)  # Initialize logging after loading settings
     ensure_station_xml(settings, data_base_folder / "station.xml")
+
+    queues = build_queues(settings)
 
     # Create a global shutdown event
     shutdown_event = Event()
@@ -44,16 +68,10 @@ def main():
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
 
-    # Create queues for communication between jobs
-    msed_writer_queue = Queue()
-    websocket_queue = Queue()
-    trigger_queue = Queue()
-    notifier_queue = Queue()
-
     # Create and start the Reader job thread (reads from ADC, puts data in the queues)
     reader_job = Reader(
         settings,
-        [msed_writer_queue, websocket_queue, trigger_queue, notifier_queue],
+        list(queues.values()),
         shutdown_event,
         soh_tracker
     )
@@ -62,7 +80,7 @@ def main():
     # Create and start the MSeedWriter job thread (writes data to MiniSEED file)
     m_seed_writer_job = MSeedWriter(
         settings,
-        msed_writer_queue,
+        queues['mseed'],
         data_base_folder,
         shutdown_event,
         earthquake_event,
@@ -72,7 +90,7 @@ def main():
     # Create and start the WebSocketSender job thread (sends data over WebSocket)
     websocket_job = WebSocketSender(
         settings,
-        websocket_queue,
+        queues['websocket'],
         shutdown_event,
         earthquake_event,
         soh_tracker,
@@ -83,20 +101,29 @@ def main():
     # Create and start the TriggerProcessor job thread (processes data for earthquake detection)
     trigger_processor_job = TriggerProcessor(
         settings,
-        trigger_queue,
+        queues['trigger'],
         shutdown_event,
         earthquake_event
     )
     trigger_processor_job.start()
 
-        # Create and start the NotifierSender job thread (sends earthquake notifications)
+    # Create and start the NotifierSender job thread (sends earthquake notifications)
     notifier_job = NotifierSender(
         settings,
-        notifier_queue,
+        queues['notifier'],
         shutdown_event,
         earthquake_event
     )
     notifier_job.start()
+
+    ringserver_job = None
+    if "ringserver" in queues:
+        ringserver_job = RingServerSender(
+            settings,
+            queues['ringserver'],
+            shutdown_event
+        )
+        ringserver_job.start()
 
 
     # Gracefully stop all threads
@@ -107,6 +134,9 @@ def main():
     websocket_job.join()
     trigger_processor_job.join()
     notifier_job.join()
+
+    if ringserver_job:
+        ringserver_job.join()
 
     logger.debug("All threads stopped and the main script has finished.")
 
