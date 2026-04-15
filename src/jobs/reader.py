@@ -15,6 +15,9 @@ from src.utils.soh_tracker import SOHTracker
 logger = getLogger(__name__)
 
 
+_GPS_WARN_INTERVAL = 30.0  # Minimum seconds between GPS lock warnings when GPS is not locked. This prevents log spam during long GPS outages.
+
+
 class Reader(Thread):
     """
     Thread that continuously reads from the RS-422 serial port,
@@ -37,6 +40,11 @@ class Reader(Thread):
         self.baudrate = settings.jobs_settings.reader.baudrate
         self.heartbeat_interval = 0.5  # Send pulse every 500ms
         self.last_heartbeat = 0
+
+        self._gps_was_locked = False
+        self._no_lock_count = 0
+        self._locked_count = 0
+        self._last_gps_warn_ts = 0
 
         self.channels = self.__map_channels()
 
@@ -91,7 +99,32 @@ class Reader(Thread):
             self.shutdown_event.set()
 
     def _process_packet(self, data: Sample):
-        timestamp = time.time()
+        timestamp = data.unix_timestamp
+
+        if data.gps_locked:
+            if not self._gps_was_locked:
+                logger.info(
+                    "GPS lock acquired. Switching to GPS-disciplined timestamps. "
+                    "(%d packets used time.time() fallback during cold-start)",
+                    self._no_lock_count,
+                )
+                self._gps_was_locked = True
+                self._no_lock_count  = 0
+            self._locked_count += 1
+        else:
+            self._no_lock_count += 1
+            now = time.time()
+            if now - self._last_gps_warn_ts > _GPS_WARN_INTERVAL:
+                logger.warning(
+                    "GPS not locked — using time.time() fallback for sample timestamp "
+                    "(unix_sec=0 in packet). Count since last lock: %d",
+                    self._no_lock_count,
+                )
+                self._last_gps_warn_ts = now
+            if self._gps_was_locked:
+                logger.warning("GPS lock LOST — reverting to time.time() fallback.")
+                self._gps_was_locked = False
+
         packet = data.to_dict(timestamp, self.channels)
 
         for q in self.queues:
