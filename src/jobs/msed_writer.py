@@ -165,6 +165,11 @@ class MSeedWriter(Thread):
 
         plot_filename = data_path.with_suffix(".png")
 
+        tr = plot_st[0]
+        header = tr.stats
+        year = header.starttime.strftime('%Y')
+        jday = header.starttime.strftime('%j')
+
         plot_st.plot(
             type="dayplot", 
             interval=15, 
@@ -172,6 +177,6 @@ class MSeedWriter(Thread):
             number_of_ticks=7, 
             one_tick_per_line=True, 
             color=['black', 'red', 'blue', 'green'],
-            title=f"Helicorder for {plot_st[0].id}",
+            title=f"Helicorder: {tr.id} | Year: {year} | Day: {jday}",
             outfile=str(plot_filename)
         )
