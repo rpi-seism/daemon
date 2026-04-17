@@ -23,7 +23,8 @@ def sds_path(archive_root: Path, network: str, station: str,
     )
 
     if plot:
-        return archive_root / "archive" / "plots" / str(t.year) / network / station / f"{channel}.D" / filename + ".png"
+        filename += ".png"
+        return archive_root / "archive" / "plots" / str(t.year) / network / station / f"{channel}.D" / filename
 
     return archive_root / "archive" / "sds" / str(t.year) / network / station / f"{channel}.D" / filename
 
