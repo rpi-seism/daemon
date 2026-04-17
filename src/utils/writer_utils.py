@@ -7,7 +7,7 @@ logger = getLogger(__name__)
 
 
 def sds_path(archive_root: Path, network: str, station: str,
-              location_code: str, channel: str, t: UTCDateTime) -> Path:
+              location_code: str, channel: str, t: UTCDateTime, plot: bool = False) -> Path:
     """
     Returns the SDS file path for a given channel and UTC time.
 
@@ -21,7 +21,9 @@ def sds_path(archive_root: Path, network: str, station: str,
         f"{network}.{station}.{location_code}.{channel}"
         f".D.{t.year}.{t.julday:03d}.mseed"
     )
-    return archive_root / "archive" / str(t.year) / network / station / f"{channel}.D" / filename
+    if plot:
+        return archive_root / "archive" / "plots" / str(t.year) / network / station / f"{channel}.D" / filename
+    return archive_root / "archive" / "sds" / str(t.year) / network / station / f"{channel}.D" / filename
 
 
 def split_buffer_at_midnight(

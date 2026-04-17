@@ -127,17 +127,20 @@ class MSeedWriter(Thread):
                 trace.stats.starttime    = slice_start
                 trace.stats.sampling_rate = sampling_rate
 
-                path = sds_path(self.output_dir, network, station, location_code, ch_name, slice_start)
-                path.parent.mkdir(parents=True, exist_ok=True)
+                data_path = sds_path(self.output_dir, network, station, location_code, ch_name, slice_start)
+                data_path.parent.mkdir(parents=True, exist_ok=True)
+
+                plot_path = sds_path(self.output_dir, network, station, location_code, ch_name, slice_start, plot=True)
+                plot_path.parent.mkdir(parents=True, exist_ok=True)
 
                 stream = Stream([trace])
 
-                self._write_trace(path, stream)
+                self._write_trace(data_path, plot_path, stream)
 
         self._buffer.clear()
         self._start_time = None
 
-    def _write_trace(self, path: Path, new_stream: Stream):
+    def _write_trace(self, path: Path, plot_path: Path, new_stream: Stream):
         if path.exists():
             existing = read(str(path))
             combined = existing + new_stream
@@ -147,10 +150,10 @@ class MSeedWriter(Thread):
                          sum(len(tr.data) for tr in existing),
                          sum(len(tr.data) for tr in new_stream),
                          path.name)
-            self._generate_dayplot(combined, path)
+            self._generate_dayplot(combined, plot_path)
         else:
             new_stream.write(str(path), format="MSEED", reclen=512)
-            self._generate_dayplot(new_stream, path)
+            self._generate_dayplot(new_stream, plot_path)
             logger.info("Created %s", path.name)
 
     def _generate_dayplot(self, st: Stream, data_path: Path):
