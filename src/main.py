@@ -1,66 +1,33 @@
 import signal
-
-from queue import Queue
-from pathlib import Path
-from threading import Event
 import logging
-
+import multiprocessing  # Replaces threading
+from pathlib import Path
 from rpi_seism_common.settings import Settings
 
+# Existing internal imports
 from src.logger import configure_logger
 from src.station_xml import ensure_station_xml
-from src.utils.soh_tracker import SOHTracker
 from src.jobs import Reader, MSeedWriter, WebSocketSender, TriggerProcessor, NotifierSender, RingServerSender
-
 
 logger = logging.getLogger(__name__)
 
-
-def build_queues(settings: Settings) -> dict[str, Queue]:
-    """
-    Initializes communication queues based on the enabled flags in settings.
-    """
-    queues = {
-        "mseed": Queue(),
-        "websocket": Queue(),
-        "trigger": Queue(),
-        "notifier": Queue()
-    }
-
-    # Conditionally add the RingServer queue
-    # Adjust the attribute path (e.g., settings.ringserver.enabled) to match your Settings class
-    if settings.jobs_settings.ring_server.enabled:
-        queues["ringserver"] = Queue()
-        logger.info("Queue for RingServer created.")
-    else:
-        logger.info("RingServer is disabled; queue omitted.")
-
-    return queues
-
-
 def main():
-    """
-    Main function that initializes the seismic data acquisition system.
-    It sets up logging, loads settings, creates necessary threads for reading data,
-    writing to MiniSEED files, sending data over WebSocket, and processing triggers.
-    It also handles graceful shutdown on receiving termination signals.
-    """
-    # Define paths and load settings
     data_base_folder = Path(__file__).parent.parent / "data"
     settings = Settings.load_settings(data_base_folder / "config.yml")
-    configure_logger(data_base_folder)  # Initialize logging after loading settings
+    configure_logger(data_base_folder)
     ensure_station_xml(settings, data_base_folder / "station.xml")
 
-    queues = build_queues(settings)
+    # Use Multiprocessing Manager for shared objects
+    # This allows processes to update the same Event/Tracker
+    manager = multiprocessing.Manager()
+    
+    shutdown_event = manager.Event()
+    earthquake_event = manager.Event()
 
-    # Create a global shutdown event
-    shutdown_event = Event()
-    earthquake_event = Event()
+    # Define the ZMQ Address
+    # IPC is perfect for Raspberry Pi (low overhead, no network needed)
+    ZMQ_ADDR = "ipc:///tmp/seism_hub.ipc"
 
-     # Create SOH tracker (shared between Reader and WebSocketSender)
-    soh_tracker = SOHTracker()
-
-    # Define a signal handler for systemd (SIGTERM)
     def handle_exit(sig, frame):
         logger.debug("Exit signal %s received. Shutting down...", sig)
         shutdown_event.set()
@@ -68,78 +35,47 @@ def main():
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
 
-    # Create and start the Reader job thread (reads from ADC, puts data in the queues)
+    # Initialize Jobs as Processes
+    # We no longer need to build a list of Queues!
+    
+    jobs = []
+
+    # The Producer (The only one that Binds the socket)
     reader_job = Reader(
         settings,
-        list(queues.values()),
         shutdown_event,
-        soh_tracker
+        ZMQ_ADDR
     )
-    reader_job.start()
+    jobs.append(reader_job)
 
-    # Create and start the MSeedWriter job thread (writes data to MiniSEED file)
-    m_seed_writer_job = MSeedWriter(
-        settings,
-        queues['mseed'],
-        data_base_folder,
-        shutdown_event,
-        earthquake_event,
-    )
-    m_seed_writer_job.start()
+    # The Consumers (All connect to the same ZMQ_ADDR)
+    jobs.append(MSeedWriter(settings, data_base_folder, shutdown_event, earthquake_event, ZMQ_ADDR))
+    jobs.append(WebSocketSender(settings, shutdown_event, earthquake_event, ZMQ_ADDR))
+    jobs.append(TriggerProcessor(settings, shutdown_event, earthquake_event, ZMQ_ADDR))
+    jobs.append(NotifierSender(settings, shutdown_event, earthquake_event, ZMQ_ADDR))
 
-    # Create and start the WebSocketSender job thread (sends data over WebSocket)
-    websocket_job = WebSocketSender(
-        settings,
-        queues['websocket'],
-        shutdown_event,
-        earthquake_event,
-        soh_tracker,
-        host="0.0.0.0"
-    )
-    websocket_job.start()
+    if settings.jobs_settings.ring_server.enabled:
+        jobs.append(RingServerSender(settings, shutdown_event, ZMQ_ADDR))
 
-    # Create and start the TriggerProcessor job thread (processes data for earthquake detection)
-    trigger_processor_job = TriggerProcessor(
-        settings,
-        queues['trigger'],
-        shutdown_event,
-        earthquake_event
-    )
-    trigger_processor_job.start()
+    # Start all processes
+    for job in jobs:
+        job.start()
 
-    # Create and start the NotifierSender job thread (sends earthquake notifications)
-    notifier_job = NotifierSender(
-        settings,
-        queues['notifier'],
-        shutdown_event,
-        earthquake_event
-    )
-    notifier_job.start()
+    # Wait for the Reader to finish (triggered by shutdown_event)
+    try:
+        reader_job.join()
+    except KeyboardInterrupt:
+        shutdown_event.set()
 
-    ringserver_job = None
-    if "ringserver" in queues:
-        ringserver_job = RingServerSender(
-            settings,
-            queues['ringserver'],
-            shutdown_event
-        )
-        ringserver_job.start()
+    # Wait for all other workers
+    for job in jobs:
+        if job.is_alive():
+            job.join(timeout=2)
+            job.terminate() # Force kill if they don't exit gracefully
 
-
-    # Gracefully stop all threads
-    reader_job.join()
-
-    # Wait for all threads to finish
-    m_seed_writer_job.join()
-    websocket_job.join()
-    trigger_processor_job.join()
-    notifier_job.join()
-
-    if ringserver_job:
-        ringserver_job.join()
-
-    logger.debug("All threads stopped and the main script has finished.")
-
+    logger.debug("All processes stopped. Main script finished.")
 
 if __name__ == "__main__":
+    # Crucial for multiprocessing on some OS/Pi distros
+    multiprocessing.set_start_method('spawn', force=True)
     main()

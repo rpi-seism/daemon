@@ -1,6 +1,6 @@
-from threading import Thread, Event
+from multiprocessing import Process, Event
 import time
-from queue import Queue, Empty
+import zmq
 from pathlib import Path
 from logging import getLogger
 
@@ -13,7 +13,7 @@ from src.utils.writer_utils import sds_path, split_buffer_at_midnight
 logger = getLogger(__name__)
 
 
-class MSeedWriter(Thread):
+class MSeedWriter(Process):
     """
     Thread that buffers incoming seismic data packets and writes them to
     MiniSEED files following the SeisComp Data Structure (SDS) convention.
@@ -32,14 +32,14 @@ class MSeedWriter(Thread):
     def __init__(
         self,
         settings: Settings,
-        data_queue: Queue,
         output_dir: Path,
         shutdown_event: Event,
-        earthquake_event: Event
+        earthquake_event: Event,
+        zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc"
     ):
         super().__init__()
         self.settings = settings
-        self.data_queue = data_queue
+        self.zmq_endpoint = zmq_endpoint
         self.output_dir = output_dir
         self.write_interval_sec = settings.jobs_settings.writer.write_interval_sec
         self.shutdown_event = shutdown_event
@@ -53,41 +53,54 @@ class MSeedWriter(Thread):
     def run(self):
         next_write_time = time.time() + self.write_interval_sec
 
+        context = zmq.Context()
+        sub_socket = context.socket(zmq.SUB)
+        sub_socket.connect(self.zmq_endpoint)
+        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "") # Receive everything
+
+        # This allows us to check shutdown_event and next_write_time
+        sub_socket.setsockopt(zmq.RCVTIMEO, 100) # 100ms timeout
+
         while not self.shutdown_event.is_set():
             now = time.time()
 
             try:
-                while True:
-                    packet = self.data_queue.get_nowait()
-                    ts = packet["timestamp"]
+                # Receive one packet at a time
+                packet = sub_socket.recv_pyobj()
 
+                if packet.get("type") == "packet":
+                    ts = packet["timestamp"]
                     if not self._buffer:
                         self._start_time = ts
 
                     for item in packet["measurements"]:
                         ch_name = item["channel"].name
                         self._buffer.setdefault(ch_name, []).append(item["value"])
-
-                    self.data_queue.task_done()
-            except Empty:
+            
+            except zmq.Again:
+                # This exception is raised when RCVTIMEO is hit
                 pass
+            except Exception as e:
+                logger.error(f"ZMQ Error: {e}")
 
+            # Now these checks will actually execute!
+            
             # Earthquake early-flush trigger
             if self.earthquake_event.is_set() and not self._is_processing_event:
-                next_write_time = now + 300  # flush in 5 minutes
+                next_write_time = now + 300  
                 self._is_processing_event = True
-                logger.warning("Earthquake detected — flushing to disk in 5 minutes.")
+                logger.warning("Earthquake detected — scheduled flush in 5 min.")
 
-            # Scheduled
+            # Scheduled write
             if now >= next_write_time:
                 self._flush()
                 next_write_time = now + self.write_interval_sec
                 self._is_processing_event = False
 
-            time.sleep(0.01)
-
         # Final flush on shutdown
         self._flush()
+        sub_socket.close()
+        context.term()
 
     def _flush(self):
         """

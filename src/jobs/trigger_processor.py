@@ -1,9 +1,9 @@
 from collections import deque
-from threading import Thread, Event
-from queue import Empty, Queue
+from multiprocessing import Process, Event
 from logging import getLogger
 
 import numpy as np
+import zmq
 
 # ObsPy's recursive STA/LTA is faster and better for continuous data
 from obspy.signal.trigger import recursive_sta_lta
@@ -13,7 +13,7 @@ from rpi_seism_common.settings import Settings
 logger = getLogger(__name__)
 
 
-class TriggerProcessor(Thread):
+class TriggerProcessor(Process):
     """
     Thread that processes incoming seismic data packets using ObsPy's recursive STA/LTA.
     Uses a rolling buffer to maintain the state required for the algorithm.
@@ -21,14 +21,14 @@ class TriggerProcessor(Thread):
     def __init__(
         self,
         settings: Settings,
-        data_queue: Queue,
         shutdown_event: Event,
-        earthquake_event: Event
+        earthquake_event: Event,
+        zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc",
     ):
         super().__init__()
-        self.data_queue = data_queue
         self.earthquake_event = earthquake_event
         self.shutdown_event = shutdown_event
+        self.zmq_endpoint = zmq_endpoint
 
         # Configuration from settings
         self.sampling_rate = settings.mcu.sampling_rate
@@ -56,10 +56,18 @@ class TriggerProcessor(Thread):
     def run(self):
         logger.info("Trigger Processor (ObsPy Recursive STA/LTA) started.")
 
+        context = zmq.Context()
+        sub_socket = context.socket(zmq.SUB)
+        sub_socket.connect(self.zmq_endpoint)
+        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "") # Receive everything
+
         while not self.shutdown_event.is_set():
             try:
                 # Expecting: {"timestamp": float, "measurements": [{"channel": obj, "value": int}, ...]}
-                packet = self.data_queue.get(timeout=0.5)
+                packet = sub_socket.recv_pyobj()
+
+                if packet.get("type") != "packet":
+                    continue
 
                 # Extract the value for the trigger channel
                 trigger_value = next(
@@ -81,11 +89,14 @@ class TriggerProcessor(Thread):
 
                 self.data_queue.task_done()
 
-            except Empty:
-                continue
+            except zmq.Again:
+                # This exception is raised when RCVTIMEO is hit
+                pass
             except Exception:
                 logger.exception("Error in Trigger Processor loop")
 
+        sub_socket.close()
+        context.term()
         logger.info("Trigger Processor stopped.")
 
     def _update_trigger_state(self):

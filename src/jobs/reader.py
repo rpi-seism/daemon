@@ -1,10 +1,10 @@
-from threading import Thread, Event
-from queue import Queue
+from multiprocessing import Event, Process
 from logging import getLogger
 
 from rpi_seism_common.settings import Settings
 import time
 import serial
+import zmq
 
 from src.exception.mcu_no_response import MCUNoResponse
 from src.structs.sample import Sample
@@ -15,7 +15,7 @@ from src.utils.soh_tracker import SOHTracker
 logger = getLogger(__name__)
 
 
-class Reader(Thread):
+class Reader(Process):
     """
     Thread that continuously reads from the RS-422 serial port,
     processes incoming packets, and distributes data to queues.
@@ -23,24 +23,29 @@ class Reader(Thread):
     def __init__(
         self,
         settings: Settings,
-        queues: list[Queue],
-        shutdown_event: Event,
-        soh_tracker: SOHTracker
+        shutdown_event: Event = None,
+        zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc"
     ):
         super().__init__()
         self.port = settings.jobs_settings.reader.port
         self.settings = settings
-        self.queues = queues
+        self.zmq_endpoint = zmq_endpoint
         self.shutdown_event = shutdown_event
-        self.soh_tracker = soh_tracker
+        self.soh_tracker = SOHTracker()
 
         self.baudrate = settings.jobs_settings.reader.baudrate
         self.heartbeat_interval = 0.5  # Send pulse every 500ms
         self.last_heartbeat = 0
+        self.last_soh_update = 0
 
         self.channels = self.__map_channels()
 
     def run(self):
+        # Initialize ZeroMQ
+        context = zmq.Context()
+        self.pub_socket = context.socket(zmq.PUB)
+        self.pub_socket.bind(self.zmq_endpoint)
+
         try:
             with serial.Serial(self.port, self.baudrate, timeout=0.1) as ser:
                 logger.info("Connected to RS-422 on %s at %d", self.port, self.baudrate)
@@ -83,20 +88,26 @@ class Reader(Thread):
                             self.soh_tracker.record_dropped_bytes(1)
                             del buffer[0]
 
+                    if time.time() - self.last_soh_update > 5.0:
+                        soh_stats = self.soh_tracker.get_snapshot()
+                        # Send on a specific ZMQ topic or a different socket
+                        self.pub_socket.send_pyobj({"type": "SOH", "data": soh_stats})
+                        self.last_soh_update = time.time()
+
         except Exception:
             logger.exception("RS-422 Reader exception")
         finally:
             self.soh_tracker.set_disconnected()
             logger.info("RS-422 Reader stopped.")
             self.shutdown_event.set()
+            self.pub_socket.close()
+            context.term()
 
     def _process_packet(self, data: Sample):
         timestamp = time.time()
         packet = data.to_dict(timestamp, self.channels)
 
-        for q in self.queues:
-            # Replicating your original tuple format
-            q.put(packet)
+        self.pub_socket.send_pyobj(packet)
 
     def __map_channels(self):
         return {
