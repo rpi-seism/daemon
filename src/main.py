@@ -52,7 +52,9 @@ def main():
     jobs.append(MSeedWriter(settings, data_base_folder, shutdown_event, earthquake_event, ZMQ_ADDR))
     jobs.append(WebSocketSender(settings, shutdown_event, earthquake_event, ZMQ_ADDR))
     jobs.append(TriggerProcessor(settings, shutdown_event, earthquake_event, ZMQ_ADDR))
-    jobs.append(NotifierSender(settings, shutdown_event, earthquake_event, ZMQ_ADDR))
+
+    if any(x.enabled for x in settings.jobs_settings.notifiers):
+        jobs.append(NotifierSender(settings, shutdown_event, earthquake_event, ZMQ_ADDR))
 
     if settings.jobs_settings.ring_server.enabled:
         jobs.append(RingServerSender(settings, shutdown_event, ZMQ_ADDR))
