@@ -77,7 +77,6 @@ class TriggerProcessor(Process):
                 )
 
                 if trigger_value is None:
-                    self.data_queue.task_done()
                     continue
 
                 # Add new sample to the rolling buffer
@@ -86,8 +85,6 @@ class TriggerProcessor(Process):
                 # Process if we have enough data for the LTA window
                 if len(self.data_buffer) >= self.nlta:
                     self._update_trigger_state()
-
-                self.data_queue.task_done()
 
             except zmq.Again:
                 # This exception is raised when RCVTIMEO is hit
