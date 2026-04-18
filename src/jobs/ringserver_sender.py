@@ -65,7 +65,6 @@ class RingServerSender(Process):
                     for item in packet["measurements"]:
                         ch_name = item["channel"].name
                         self._buffer.setdefault(ch_name, []).append(item["value"])
-                    self.data_queue.task_done()
             except zmq.Again:
                 # No more data in the ZMQ socket for now
                 pass
