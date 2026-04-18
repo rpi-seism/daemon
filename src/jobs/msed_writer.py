@@ -185,10 +185,6 @@ class MSeedWriter(Process):
 
         plot_st.plot(
             type="dayplot", 
-            interval=15, 
-            right_vertical_labels=False, 
-            number_of_ticks=7, 
-            one_tick_per_line=True, 
             color=['black', 'red', 'blue', 'green'],
             title=f"Helicorder: {tr.id} | Year: {year} | Day: {jday}",
             outfile=str(plot_filename)
