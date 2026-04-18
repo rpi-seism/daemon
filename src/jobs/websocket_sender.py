@@ -135,6 +135,10 @@ class WebSocketSender(Process):
 
     async def _process_and_broadcast(self, channel_name):
         """Perform decimation and broadcast for a specific channel."""
+        # If no WebSocket clients are connected, don't waste CPU on obspy
+        if not self._clients:
+            return
+
         state = self.channels_state[channel_name]
 
         # Create Trace from current buffer
@@ -169,6 +173,10 @@ class WebSocketSender(Process):
 
     async def _broadcast_soh(self):
         """Broadcast current State of Health metrics to all connected clients."""
+        # If no WebSocket clients are connected, don't waste CPU
+        if not self._clients:
+            return
+
         if not self.latest_soh_data:
             return
 
