@@ -1,6 +1,7 @@
 import time
 from logging import getLogger
 from multiprocessing import Event, Queue
+from queue import Full
 from pathlib import Path
 from threading import Thread
 
@@ -181,4 +182,11 @@ class MSeedWriter(Thread):
             new_stream.write(str(path), format="MSEED", reclen=512)
             logger.info("Created %s", path.name)
 
-        self.plot_queue.put_nowait({"mseed_path": str(path), "plot_path": str(plot_path)})
+        try:
+            self.plot_queue.put_nowait(
+                {"mseed_path": str(path), "plot_path": str(plot_path)}
+            )
+        except Full:
+            logger.warning(
+                "Plot queue full! Skipping this plot to keep data saving alive."
+            )

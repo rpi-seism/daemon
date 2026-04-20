@@ -29,7 +29,7 @@ class Plotters(Process):
         while True:
             try:
                 # We use a timeout so we can check the shutdown_event periodically
-                task = self.plot_queue.get()
+                task = self.plot_queue.get(timeout=1.0)
 
                 if task is None:
                     logger.debug("Received None, stopping process")

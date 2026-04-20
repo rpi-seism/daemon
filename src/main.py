@@ -23,13 +23,10 @@ def main():
     configure_logger(data_base_folder)
     ensure_station_xml(settings, data_base_folder / "station.xml")
 
-    # 2. Shared primitives
-    # Manager handles cross-process sync for the Events and Queue
-    manager = multiprocessing.Manager()
-
-    shutdown_event = manager.Event()
-    earthquake_event = manager.Event()
-    plot_queue = manager.Queue()
+    # Use standard primitives (Faster, direct IPC)
+    shutdown_event = multiprocessing.Event()
+    earthquake_event = multiprocessing.Event()
+    plot_queue = multiprocessing.Queue()
 
     # Define the ZMQ Address for IPC
     ZMQ_ADDR = "ipc:///tmp/seism_hub.ipc"
