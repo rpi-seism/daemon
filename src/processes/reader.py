@@ -33,6 +33,10 @@ class Reader(Process):
         self.shutdown_event = shutdown_event
         self.soh_tracker = SOHTracker()
 
+        self.queue_len = (
+            self.settings.mcu.sampling_rate * len(self.settings.channels) * 60
+        ) * 5  # 5 minutes of data at 100 Hz for 3 channels
+
         self.baudrate = settings.jobs_settings.reader.baudrate
         self.heartbeat_interval = 0.5  # Send pulse every 500ms
         self.last_heartbeat = 0
@@ -44,7 +48,7 @@ class Reader(Process):
         # Initialize ZeroMQ
         context = zmq.Context()
         self.pub_socket = context.socket(zmq.PUB)
-        self.pub_socket.set(zmq.SNDHWM, 18000)  # 100 Hz * 3 channels * 60 sec = 18000 packets before we start dropping data
+        self.pub_socket.set(zmq.SNDHWM, self.queue_len)
         self.pub_socket.bind(self.zmq_endpoint)
 
         try:

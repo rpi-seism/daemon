@@ -1,8 +1,8 @@
 import time
 from logging import getLogger
 from multiprocessing import Event, Queue
-from queue import Full
 from pathlib import Path
+from queue import Full
 from threading import Thread
 
 import numpy as np
@@ -49,6 +49,10 @@ class MSeedWriter(Thread):
         self.earthquake_event = earthquake_event
         self.plot_queue = plot_queue
 
+        self.queue_len = (
+            self.settings.mcu.sampling_rate * len(self.settings.channels) * 60
+        ) * 5  # 5 minutes of data at 100 Hz for 3 channels
+
         # { channel_name: [raw_int_value, ...] }
         self._buffer: dict[str, list] = {}
         self._start_time: float | None = None
@@ -59,7 +63,7 @@ class MSeedWriter(Thread):
 
         context = zmq.Context()
         sub_socket = context.socket(zmq.SUB)
-        sub_socket.set(zmq.RCVHWM, 18000)  # 100 Hz * 3 channels * 60 sec = 18000 packets before we start dropping data
+        sub_socket.set(zmq.RCVHWM, self.queue_len)
         sub_socket.connect(self.zmq_endpoint)
         sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Receive everything
 
