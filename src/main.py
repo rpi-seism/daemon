@@ -1,145 +1,100 @@
-import signal
-
-from queue import Queue
-from pathlib import Path
-from threading import Event
 import logging
+import multiprocessing
+import signal
+import time
+from pathlib import Path
 
 from rpi_seism_common.settings import Settings
 
+# Internal imports for the new Process Containers
 from src.logger import configure_logger
+from src.processes.managers import Managers
+from src.processes.plotters import Plotters
+from src.processes.producers import Producers
+from src.processes.reader import Reader
 from src.station_xml import ensure_station_xml
-from src.utils.soh_tracker import SOHTracker
-from src.jobs import Reader, MSeedWriter, WebSocketSender, TriggerProcessor, NotifierSender, RingServerSender
-
 
 logger = logging.getLogger(__name__)
 
 
-def build_queues(settings: Settings) -> dict[str, Queue]:
-    """
-    Initializes communication queues based on the enabled flags in settings.
-    """
-    queues = {
-        "mseed": Queue(),
-        "websocket": Queue(),
-        "trigger": Queue(),
-        "notifier": Queue()
-    }
-
-    # Conditionally add the RingServer queue
-    # Adjust the attribute path (e.g., settings.ringserver.enabled) to match your Settings class
-    if settings.jobs_settings.ring_server.enabled:
-        queues["ringserver"] = Queue()
-        logger.info("Queue for RingServer created.")
-    else:
-        logger.info("RingServer is disabled; queue omitted.")
-
-    return queues
-
-
 def main():
-    """
-    Main function that initializes the seismic data acquisition system.
-    It sets up logging, loads settings, creates necessary threads for reading data,
-    writing to MiniSEED files, sending data over WebSocket, and processing triggers.
-    It also handles graceful shutdown on receiving termination signals.
-    """
-    # Define paths and load settings
+    # 1. Setup paths and settings
     data_base_folder = Path(__file__).parent.parent / "data"
     settings = Settings.load_settings(data_base_folder / "config.yml")
-    configure_logger(data_base_folder)  # Initialize logging after loading settings
+    configure_logger(data_base_folder)
     ensure_station_xml(settings, data_base_folder / "station.xml")
 
-    queues = build_queues(settings)
+    # Use standard primitives (Faster, direct IPC)
+    shutdown_event = multiprocessing.Event()
+    earthquake_event = multiprocessing.Event()
+    plot_queue = multiprocessing.Queue()
 
-    # Create a global shutdown event
-    shutdown_event = Event()
-    earthquake_event = Event()
+    # Define the ZMQ Address for IPC
+    ZMQ_ADDR = "ipc:///tmp/seism_hub.ipc"
 
-     # Create SOH tracker (shared between Reader and WebSocketSender)
-    soh_tracker = SOHTracker()
-
-    # Define a signal handler for systemd (SIGTERM)
+    # 3. Signal Handling
     def handle_exit(sig, frame):
-        logger.debug("Exit signal %s received. Shutting down...", sig)
-        shutdown_event.set()
+        if not shutdown_event.is_set():
+            logger.info(f"Signal {sig} received. Initiating graceful shutdown...")
+            shutdown_event.set()
 
     signal.signal(signal.SIGTERM, handle_exit)
     signal.signal(signal.SIGINT, handle_exit)
 
-    # Create and start the Reader job thread (reads from ADC, puts data in the queues)
-    reader_job = Reader(
-        settings,
-        list(queues.values()),
-        shutdown_event,
-        soh_tracker
-    )
-    reader_job.start()
+    # Initialize the 4 Process Containers
+    # Each of these encapsulates multiple threads/tasks
 
-    # Create and start the MSeedWriter job thread (writes data to MiniSEED file)
-    m_seed_writer_job = MSeedWriter(
+    reader = Reader(settings, shutdown_event, ZMQ_ADDR)
+
+    producers = Producers(
         settings,
-        queues['mseed'],
         data_base_folder,
         shutdown_event,
         earthquake_event,
+        plot_queue,
+        ZMQ_ADDR,
     )
-    m_seed_writer_job.start()
 
-    # Create and start the WebSocketSender job thread (sends data over WebSocket)
-    websocket_job = WebSocketSender(
-        settings,
-        queues['websocket'],
-        shutdown_event,
-        earthquake_event,
-        soh_tracker,
-        host="0.0.0.0"
-    )
-    websocket_job.start()
+    managers = Managers(settings, shutdown_event, earthquake_event, ZMQ_ADDR)
 
-    # Create and start the TriggerProcessor job thread (processes data for earthquake detection)
-    trigger_processor_job = TriggerProcessor(
-        settings,
-        queues['trigger'],
-        shutdown_event,
-        earthquake_event
-    )
-    trigger_processor_job.start()
+    all_processes = [reader, producers, managers]
 
-    # Create and start the NotifierSender job thread (sends earthquake notifications)
-    notifier_job = NotifierSender(
-        settings,
-        queues['notifier'],
-        shutdown_event,
-        earthquake_event
-    )
-    notifier_job.start()
-
-    ringserver_job = None
-    if "ringserver" in queues:
-        ringserver_job = RingServerSender(
-            settings,
-            queues['ringserver'],
-            shutdown_event
-        )
-        ringserver_job.start()
+    if settings.jobs_settings.dayplot.enabled:
+        plotters = Plotters(settings, plot_queue, shutdown_event)
+        all_processes.append(plotters)
 
 
-    # Gracefully stop all threads
-    reader_job.join()
+    # 5. Start Execution
+    logger.info("Launching Seismic Stack (4-Process Architecture)...")
+    for p in all_processes:
+        p.start()
 
-    # Wait for all threads to finish
-    m_seed_writer_job.join()
-    websocket_job.join()
-    trigger_processor_job.join()
-    notifier_job.join()
+    # 6. Monitor and Wait
+    try:
+        # Keep main alive while the core producer is running
+        while not shutdown_event.is_set():
+            if not producers.is_alive():
+                logger.error("Producers process died! Shutting down system.")
+                shutdown_event.set()
+                break
+            time.sleep(1)
 
-    if ringserver_job:
-        ringserver_job.join()
+    except KeyboardInterrupt:
+        shutdown_event.set()
+    finally:
+        logger.info("Cleaning up processes...")
 
-    logger.debug("All threads stopped and the main script has finished.")
+        # Give processes a moment to finish their loops
+        for p in all_processes:
+            p.join(timeout=30)
+            if p.is_alive():
+                logger.warning(f"Process {p.name} refused to exit. Terminating...")
+                p.terminate()
+
+    logger.info("Main script finished.")
 
 
 if __name__ == "__main__":
+    # 'spawn' is safest for hardware and ZMQ inside Docker
+    multiprocessing.set_start_method("spawn", force=True)
     main()

@@ -64,7 +64,7 @@ def _build_channel_response(settings: Settings, channel: SettingsChannel) -> Res
     counts_per_volt = (settings.mcu.adc_gain_value * 2**23) / settings.mcu.vref
     total_sensitivity = channel.sensitivity * channel.analog_gain * counts_per_volt
 
-    print(f"Building response for channel {channel.name}: counts_per_volt={counts_per_volt:.2f}, total_sensitivity={total_sensitivity:.2f}")
+    logger.debug(f"Building response for channel {channel.name}: counts_per_volt={counts_per_volt:.2f}, total_sensitivity={total_sensitivity:.2f}")
 
     # Compute PAZ analytically from f0 and damping via ObsPy.
     paz = corn_freq_2_paz(fc=channel.natural_frequency, damp=channel.damping)

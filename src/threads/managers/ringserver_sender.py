@@ -1,6 +1,8 @@
-from threading import Thread, Event
+from multiprocessing import Event
+from threading import Thread
+
+import zmq
 import time
-from queue import Queue, Empty
 from logging import getLogger
 from io import BytesIO
 
@@ -14,11 +16,16 @@ logger = getLogger(__name__)
 
 
 class RingServerSender(Thread):
-    def __init__(self, settings: Settings, data_queue: Queue, shutdown_event: Event):
+    def __init__(
+            self,
+            settings: Settings,
+            shutdown_event: Event,
+            zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc"
+        ):
         super().__init__(daemon=True)
         self.settings = settings
-        self.data_queue = data_queue
         self.shutdown_event = shutdown_event
+        self.zmq_endpoint = zmq_endpoint
 
         self.ring_server_settings = self.settings.jobs_settings.ring_server
         self.write_interval_sec = self.ring_server_settings.write_interval_sec
@@ -32,6 +39,12 @@ class RingServerSender(Thread):
         logger.info("RingServer sender started")
         next_write_time = time.time() + self.write_interval_sec
 
+        context = zmq.Context()
+        sub_socket = context.socket(zmq.SUB)
+        sub_socket.connect(self.zmq_endpoint)
+        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+        sub_socket.setsockopt(zmq.RCVTIMEO, 100)
+
         while not self.shutdown_event.is_set():
             now = time.time()
 
@@ -41,15 +54,19 @@ class RingServerSender(Thread):
 
             # Consume Queue
             try:
-                while True:
-                    packet = self.data_queue.get_nowait()
-                    if not self._buffer:
-                        self._start_time = packet["timestamp"]
-                    for item in packet["measurements"]:
-                        ch_name = item["channel"].name
-                        self._buffer.setdefault(ch_name, []).append(item["value"])
-                    self.data_queue.task_done()
-            except Empty:
+                packet = sub_socket.recv_json()
+
+                if packet.get("type") != "packet":
+                    continue
+
+                if not self._buffer:
+                    self._start_time = packet["timestamp"]
+
+                for item in packet["measurements"]:
+                    ch_name = item["channel"].name
+                    self._buffer.setdefault(ch_name, []).append(item["value"])
+            except zmq.Again:
+                # No more data in the ZMQ socket for now
                 pass
 
             # Periodic flush
@@ -62,6 +79,9 @@ class RingServerSender(Thread):
         self._flush()
         if self.client:
             self.client.close()
+
+        sub_socket.close()
+        context.term()
 
     def _attempt_connection(self):
         try:

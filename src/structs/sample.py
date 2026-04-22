@@ -88,6 +88,7 @@ class Sample:
 
     def to_dict(self, timestamp: int, channels: Dict[int, Channel]):
         return {
+            "type": "packet",
             "timestamp": timestamp,
             "measurements": [
                 {"channel": channels.get(0), "value": self.ch0},
