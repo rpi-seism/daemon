@@ -1,23 +1,21 @@
-from threading import Thread, Event
-from queue import Queue, Empty
+import asyncio
 from collections import deque
 from logging import getLogger
-import asyncio
+from multiprocessing import Event
+from threading import Thread
 
 import numpy as np
 import websockets
-from obspy import UTCDateTime, Trace
-
+import zmq
+import zmq.asyncio
+from obspy import Trace, UTCDateTime
 from rpi_seism_common.settings import Settings
 from rpi_seism_common.websocket_message import WebsocketMessage
-
-from src.utils.soh_tracker import SOHTracker
 
 from src.ws_messages.sample.sample import Sample
 from src.ws_messages.sample.sample_payload import SamplePayload
 from src.ws_messages.state_of_health.state_of_health import StateOfHealth
 from src.ws_messages.state_of_health.state_of_health_payload import StateOfHealthPayload
-
 
 logger = getLogger(__name__)
 
@@ -27,21 +25,20 @@ class WebSocketSender(Thread):
     in real-time to connected clients. It maintains a sliding window buffer for each channel,
     applies decimation, and sends downsampled data every second.
     """
+
     def __init__(
         self,
         settings: Settings,
-        data_queue: Queue,
         shutdown_event: Event,
         earthquake_event: Event,
-        soh_tracker: SOHTracker,
+        zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc",
         host: str = "0.0.0.0",
-        port: int = 8765
+        port: int = 8765,
     ):
         super().__init__(daemon=True)
-        self.data_queue = data_queue
         self.shutdown_event = shutdown_event
         self.earthquake_event = earthquake_event
-        self.soh_tracker = soh_tracker
+        self.zmq_endpoint = zmq_endpoint
         self.host = host
         self.port = port
         self.settings = settings
@@ -56,6 +53,7 @@ class WebSocketSender(Thread):
 
         # Per-channel state: { "EHZ": {"data": deque, "time": deque, "counter": 0}, ... }
         self.channels_state = {}
+        self.latest_soh_data = {}
 
         # SOH broadcast interval (seconds)
         self.soh_interval = 5.0
@@ -65,6 +63,11 @@ class WebSocketSender(Thread):
         asyncio.run(self._main_loop())
 
     async def _main_loop(self):
+        self.ctx = zmq.asyncio.Context()
+        self.sub_socket = self.ctx.socket(zmq.SUB)
+        self.sub_socket.connect(self.zmq_endpoint)
+        self.sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Subscribe to all
+
         async with websockets.serve(self._handle_connection, self.host, self.port):
             logger.info("WebSocket Server started on ws://%s:%d", self.host, self.port)
             await self._producer_loop()
@@ -77,12 +80,19 @@ class WebSocketSender(Thread):
             self._clients.discard(websocket)
 
     async def _producer_loop(self):
-        loop = asyncio.get_running_loop()
-
         while not self.shutdown_event.is_set():
             try:
                 # Expecting: {"timestamp": float, "measurements": [{"channel": obj, "value": int}, ...]}
-                packet = await loop.run_in_executor(None, self.data_queue.get, True, 0.5)
+                packet = await asyncio.wait_for(
+                    self.sub_socket.recv_json(), timeout=1.0
+                )
+
+                # Filter for packets
+                if packet.get("type") != "packet":
+                    # If this is an SOH packet, update your local tracker
+                    if packet.get("type") == "SOH":
+                        self.latest_soh_data = packet["data"]
+                    continue
 
                 ts = packet["timestamp"]
 
@@ -95,7 +105,7 @@ class WebSocketSender(Thread):
                         self.channels_state[ch_name] = {
                             "data": deque(maxlen=self.window_size),
                             "time": deque(maxlen=self.window_size),
-                            "counter": 0
+                            "counter": 0,
                         }
 
                     state = self.channels_state[ch_name]
@@ -104,22 +114,32 @@ class WebSocketSender(Thread):
                     state["counter"] += 1
 
                     # process every STEP_SIZE samples for THIS specific channel
-                    if (len(state["data"]) == self.window_size and
-                        state["counter"] % self.step_size == 0):
+                    if (
+                        len(state["data"]) == self.window_size
+                        and state["counter"] % self.step_size == 0
+                    ):
                         await self._process_and_broadcast(ch_name)
 
-                now = loop.time()
+                # Periodic SOH Broadcast to Web Clients
+                now = asyncio.get_event_loop().time()
                 if now - self.last_soh_broadcast >= self.soh_interval:
                     await self._broadcast_soh()
                     self.last_soh_broadcast = now
 
-            except Empty:
+            except asyncio.TimeoutError:
                 continue
             except Exception:
                 logger.exception("Error in WebSocket producer loop")
 
+        self.sub_socket.close()
+        self.ctx.term()
+
     async def _process_and_broadcast(self, channel_name):
         """Perform decimation and broadcast for a specific channel."""
+        # If no WebSocket clients are connected, don't waste CPU on obspy
+        if not self._clients:
+            return
+
         state = self.channels_state[channel_name]
 
         # Create Trace from current buffer
@@ -131,7 +151,7 @@ class WebSocketSender(Thread):
         # Decimate (Anti-Alias filter applied)
         tr_decimated = tr.copy()
         try:
-            tr_decimated.filter("bandpass",freqmin=0.2, freqmax=10.0)
+            tr_decimated.filter("bandpass", freqmin=0.2, freqmax=10.0)
             # Note: decimation_factor must be e.g., 2, 4, 5, 8, 10
             tr_decimated.decimate(self.settings.decimation_factor, no_filter=False)
         except Exception as e:
@@ -147,21 +167,28 @@ class WebSocketSender(Thread):
             channel=channel_name,
             timestamp=tr_decimated.stats.endtime.isoformat() + "Z",
             fs=tr_decimated.stats.sampling_rate,
-            data=downsampled_values.tolist()
+            data=downsampled_values.tolist(),
         )
 
         await self._broadcast(Sample(payload=message))
 
     async def _broadcast_soh(self):
         """Broadcast current State of Health metrics to all connected clients."""
-        snapshot = self.soh_tracker.get_snapshot()
+        # If no WebSocket clients are connected, don't waste CPU
+        if not self._clients:
+            return
+
+        if not self.latest_soh_data:
+            return
+
+        snapshot = self.latest_soh_data
 
         payload = StateOfHealthPayload(
             link_quality=snapshot["link_quality"],
             bytes_dropped=snapshot["bytes_dropped"],
             checksum_errors=snapshot["checksum_errors"],
             last_seen=snapshot["last_seen"],
-            connected=snapshot["connected"]
+            connected=snapshot["connected"],
         )
 
         message = StateOfHealth(payload=payload)
@@ -174,7 +201,9 @@ class WebSocketSender(Thread):
         payload = message.to_json
 
         dead_clients = set()
-        send_tasks = [self._safe_send(ws, payload, dead_clients) for ws in self._clients]
+        send_tasks = [
+            self._safe_send(ws, payload, dead_clients) for ws in self._clients
+        ]
         if send_tasks:
             await asyncio.gather(*send_tasks)
 

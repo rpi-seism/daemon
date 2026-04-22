@@ -1,10 +1,12 @@
-from threading import Thread, Event
-from queue import Queue
+from multiprocessing import Event
 from io import BytesIO
 from collections import deque
 from logging import getLogger
+from threading import Thread
 import time
 from datetime import datetime
+
+import zmq
 
 from apprise import Apprise, NotifyFormat
 from apprise.attachment.memory import AttachMemory
@@ -23,15 +25,15 @@ class NotifierSender(Thread):
     def __init__(
         self,
         settings: Settings,
-        data_queue: Queue,
         shutdown_event: Event,
-        earthquake_event: Event
+        earthquake_event: Event,
+        zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc"
     ):
         super().__init__()
         self.settings = settings
-        self.queue = data_queue
         self.earthquake_event = earthquake_event
         self.shutdown_event = shutdown_event
+        self.zmq_endpoint = zmq_endpoint
 
         self.notifier = Apprise()
         self.last_notification = 0
@@ -44,14 +46,21 @@ class NotifierSender(Thread):
         logger.info("Notifier Sender started.")
         self._initialize_notifier()
 
+        context = zmq.Context()
+        sub_socket = context.socket(zmq.SUB)
+        sub_socket.connect(self.zmq_endpoint)
+        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "") # Receive everything
+
+        sub_socket.setsockopt(zmq.RCVTIMEO, 100) # 100ms timeout
+
         while not self.shutdown_event.is_set():
             try:
                 try:
-                    # Small timeout so we can check shutdown_event regularly
-                    data_packet = self.queue.get(timeout=0.1)
-                    self.buffer.append(data_packet)
-                except Exception:
-                    data_packet = None
+                    packet = sub_socket.recv_json()
+                    if packet.get("type") == "packet":
+                        self.buffer.append(packet)
+                except zmq.Again:
+                    pass # Timeout reached, just check events
 
                 # Check for trigger (with 30s cooldown)
                 if self.earthquake_event.is_set() and (time.time() - self.last_notification > 30):
@@ -66,6 +75,9 @@ class NotifierSender(Thread):
 
             except Exception:
                 logger.exception("Error in Notifier loop")
+
+        sub_socket.close()
+        context.term()
 
     def _handle_event(self):
         """Waits for post-event data, generates graph, and sends."""
