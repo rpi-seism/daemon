@@ -1,6 +1,7 @@
 import time
 from logging import getLogger
 from multiprocessing import Event, Process
+from os import getpid
 
 import serial
 import zmq
@@ -45,6 +46,7 @@ class Reader(Process):
         self.channels = self.__map_channels()
 
     def run(self):
+        logger.info("Reader started. PID: %d", getpid())
         # Initialize ZeroMQ
         context = zmq.Context()
         self.pub_socket = context.socket(zmq.PUB)
