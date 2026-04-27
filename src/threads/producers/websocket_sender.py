@@ -133,6 +133,8 @@ class WebSocketSender(Thread):
                     await self._broadcast_soh()
                     self.last_soh_broadcast = now
 
+            except zmq.error.Again:
+                continue  # No message received within timeout, loop back and check shutdown_event
             except asyncio.TimeoutError:
                 continue
             except Exception:
