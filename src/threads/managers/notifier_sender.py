@@ -1,22 +1,19 @@
-from multiprocessing import Event
-from io import BytesIO
-from collections import deque
-from logging import getLogger
-from threading import Thread
 import time
+from collections import deque
 from datetime import datetime
+from io import BytesIO
+from logging import getLogger
+from multiprocessing import Event
+from os import getpid
+from threading import Thread
 
+import pandas as pd
+import plotly.graph_objects as go
 import zmq
-
 from apprise import Apprise, NotifyFormat
 from apprise.attachment.memory import AttachMemory
-
 from plotly.subplots import make_subplots
-import plotly.graph_objects as go
-import pandas as pd
-
 from rpi_seism_common.settings import Settings
-
 
 logger = getLogger(__name__)
 
@@ -27,7 +24,7 @@ class NotifierSender(Thread):
         settings: Settings,
         shutdown_event: Event,
         earthquake_event: Event,
-        zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc"
+        zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc",
     ):
         super().__init__()
         self.settings = settings
@@ -43,31 +40,33 @@ class NotifierSender(Thread):
         self.buffer = deque(maxlen=self.total_capacity)
 
     def run(self):
-        logger.info("Notifier Sender started.")
+        logger.info("Notifier Sender started. PID: %d", getpid())
         self._initialize_notifier()
 
         context = zmq.Context()
         sub_socket = context.socket(zmq.SUB)
         sub_socket.connect(self.zmq_endpoint)
-        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "") # Receive everything
+        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Receive everything
 
-        sub_socket.setsockopt(zmq.RCVTIMEO, 100) # 100ms timeout
+        sub_socket.setsockopt(zmq.RCVTIMEO, 100)  # 100ms timeout
 
         while not self.shutdown_event.is_set():
             try:
                 try:
-                    packet = sub_socket.recv_json()
+                    packet = sub_socket.recv_pyobj()
                     if packet.get("type") == "packet":
                         self.buffer.append(packet)
                 except zmq.Again:
-                    pass # Timeout reached, just check events
+                    pass  # Timeout reached, just check events
 
                 # Check for trigger (with 30s cooldown)
-                if self.earthquake_event.is_set() and (time.time() - self.last_notification > 30):
+                if self.earthquake_event.is_set() and (
+                    time.time() - self.last_notification > 30
+                ):
                     self.notifier.notify(
                         title="⚠️ Earthquake Alert",
-                        body='Significant seismic activity detected!',
-                        body_format=NotifyFormat.MARKDOWN
+                        body="Significant seismic activity detected!",
+                        body_format=NotifyFormat.MARKDOWN,
                     )
                     logger.info("Triggered! Collecting 60s post-event data...")
                     self._handle_event()
@@ -102,28 +101,33 @@ class NotifierSender(Thread):
         # Flatten the complex dict structure into a list for Pandas
         rows = []
         for packet in self.buffer:
-            ts = packet['timestamp']
-            for m in packet['measurements']:
-                rows.append({
-                    "time": datetime.fromtimestamp(ts),
-                    "channel": m['channel'].name, # e.g., "Channel Z"
-                    "value": m['value']
-                })
+            ts = packet["timestamp"]
+            for m in packet["measurements"]:
+                rows.append(
+                    {
+                        "time": datetime.fromtimestamp(ts),
+                        "channel": m["channel"].name,  # e.g., "Channel Z"
+                        "value": m["value"],
+                    }
+                )
 
         df = pd.DataFrame(rows)
-        channels = df['channel'].unique()
+        channels = df["channel"].unique()
 
         # Create subplots (one for each axis/channel)
-        fig = make_subplots(rows=len(channels), cols=1, shared_xaxes=True, vertical_spacing=0.05)
+        fig = make_subplots(
+            rows=len(channels), cols=1, shared_xaxes=True, vertical_spacing=0.05
+        )
 
         for i, ch in enumerate(channels, 1):
-            ch_data = df[df['channel'] == ch]
+            ch_data = df[df["channel"] == ch]
             fig.add_trace(
-                go.Scatter(x=ch_data['time'], y=ch_data['value'], name=ch),
-                row=i, col=1
+                go.Scatter(x=ch_data["time"], y=ch_data["value"], name=ch), row=i, col=1
             )
 
-        fig.update_layout(height=200*len(channels), title_text="Seismic Event Detail (120s)")
+        fig.update_layout(
+            height=200 * len(channels), title_text="Seismic Event Detail (120s)"
+        )
 
         # Return as PNG image bytes
         html = fig.to_html()
@@ -146,7 +150,7 @@ class NotifierSender(Thread):
                 name="report.html",
                 mimetype="text/html",
             ),
-            body_format=NotifyFormat.MARKDOWN
+            body_format=NotifyFormat.MARKDOWN,
         )
 
     def _initialize_notifier(self):

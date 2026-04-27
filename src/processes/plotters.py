@@ -1,6 +1,7 @@
 import logging
 import time
 from multiprocessing import Event, Process, Queue
+from os import getpid
 from pathlib import Path
 
 from rpi_seism_common.settings import Settings
@@ -32,7 +33,7 @@ class Plotters(Process):
         from queue import Empty
         # Internal import to avoid memory bloat in other processes
 
-        logger.info("Starting Plotters Process (DayPlotWorker)")
+        logger.info("Starting Plotters Process (DayPlotWorker). PID: %d", getpid())
 
         shutdown_triggered_time = None
 

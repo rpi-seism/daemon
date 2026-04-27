@@ -2,6 +2,7 @@ import asyncio
 from collections import deque
 from logging import getLogger
 from multiprocessing import Event
+from os import getpid
 from threading import Thread
 
 import numpy as np
@@ -69,7 +70,12 @@ class WebSocketSender(Thread):
         self.sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Subscribe to all
 
         async with websockets.serve(self._handle_connection, self.host, self.port):
-            logger.info("WebSocket Server started on ws://%s:%d", self.host, self.port)
+            logger.info(
+                "WebSocket Server started on ws://%s:%d . PID: %d",
+                self.host,
+                self.port,
+                getpid(),
+            )
             await self._producer_loop()
 
     async def _handle_connection(self, websocket):
@@ -84,7 +90,7 @@ class WebSocketSender(Thread):
             try:
                 # Expecting: {"timestamp": float, "measurements": [{"channel": obj, "value": int}, ...]}
                 packet = await asyncio.wait_for(
-                    self.sub_socket.recv_json(), timeout=1.0
+                    self.sub_socket.recv_pyobj(), timeout=1.0
                 )
 
                 # Filter for packets

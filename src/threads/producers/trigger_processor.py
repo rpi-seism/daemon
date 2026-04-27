@@ -1,7 +1,8 @@
 from collections import deque
-from multiprocessing import Event
-from threading import Thread
 from logging import getLogger
+from multiprocessing import Event
+from os import getpid
+from threading import Thread
 
 import numpy as np
 import zmq
@@ -9,7 +10,6 @@ import zmq
 # ObsPy's recursive STA/LTA is faster and better for continuous data
 from obspy.signal.trigger import recursive_sta_lta
 from rpi_seism_common.settings import Settings
-
 
 logger = getLogger(__name__)
 
@@ -19,6 +19,7 @@ class TriggerProcessor(Thread):
     Thread that processes incoming seismic data packets using ObsPy's recursive STA/LTA.
     Uses a rolling buffer to maintain the state required for the algorithm.
     """
+
     def __init__(
         self,
         settings: Settings,
@@ -40,7 +41,7 @@ class TriggerProcessor(Thread):
         self.lta_sec = settings.jobs_settings.trigger.lta_sec
 
         # Trigger thresholds
-        self.thr_on = settings.jobs_settings.trigger.thr_on   # Ratio to trigger
+        self.thr_on = settings.jobs_settings.trigger.thr_on  # Ratio to trigger
         self.thr_off = settings.jobs_settings.trigger.thr_off  # Ratio to clear trigger
 
         # Convert seconds to sample counts for ObsPy
@@ -55,28 +56,33 @@ class TriggerProcessor(Thread):
         self.last_trigger = False
 
     def run(self):
-        logger.info("Trigger Processor (ObsPy Recursive STA/LTA) started.")
+        logger.info(
+            "Trigger Processor (ObsPy Recursive STA/LTA) started. PID: %d", getpid()
+        )
 
         context = zmq.Context()
         sub_socket = context.socket(zmq.SUB)
         sub_socket.connect(self.zmq_endpoint)
-        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "") # Receive everything
+        sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Receive everything
 
         sub_socket.setsockopt(zmq.RCVTIMEO, 100)  # 100ms timeout
 
         while not self.shutdown_event.is_set():
             try:
                 # Expecting: {"timestamp": float, "measurements": [{"channel": obj, "value": int}, ...]}
-                packet = sub_socket.recv_json()
+                packet = sub_socket.recv_pyobj()
 
                 if packet.get("type") != "packet":
                     continue
 
                 # Extract the value for the trigger channel
                 trigger_value = next(
-                    (item["value"] for item in packet["measurements"]
-                     if item["channel"].name == self.trigger_channel),
-                    None
+                    (
+                        item["value"]
+                        for item in packet["measurements"]
+                        if item["channel"].name == self.trigger_channel
+                    ),
+                    None,
                 )
 
                 if trigger_value is None:
@@ -112,11 +118,15 @@ class TriggerProcessor(Thread):
 
         # Handle State Changes (Edge Detection) with Dual Thresholds (Hysteresis)
         if current_ratio > self.thr_on and not self.last_trigger:
-            logger.warning(f"EARTHQUAKE DETECTED: STA/LTA ratio {current_ratio:.2f} > {self.thr_on}")
+            logger.warning(
+                f"EARTHQUAKE DETECTED: STA/LTA ratio {current_ratio:.2f} > {self.thr_on}"
+            )
             self.earthquake_event.set()
             self.last_trigger = True
 
         elif current_ratio < self.thr_off and self.last_trigger:
-            logger.info(f"Trigger cleared: Signal ratio {current_ratio:.2f} returned below {self.thr_off}")
+            logger.info(
+                f"Trigger cleared: Signal ratio {current_ratio:.2f} returned below {self.thr_off}"
+            )
             self.earthquake_event.clear()
             self.last_trigger = False

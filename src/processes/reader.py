@@ -1,6 +1,7 @@
 import time
 from logging import getLogger
 from multiprocessing import Event, Process
+from os import getpid
 
 import serial
 import zmq
@@ -45,6 +46,7 @@ class Reader(Process):
         self.channels = self.__map_channels()
 
     def run(self):
+        logger.info("Reader started. PID: %d", getpid())
         # Initialize ZeroMQ
         context = zmq.Context()
         self.pub_socket = context.socket(zmq.PUB)
@@ -98,7 +100,7 @@ class Reader(Process):
                     if time.time() - self.last_soh_update > 5.0:
                         soh_stats = self.soh_tracker.get_snapshot()
                         # Send on a specific ZMQ topic or a different socket
-                        self.pub_socket.send_json({"type": "SOH", "data": soh_stats})
+                        self.pub_socket.send_pyobj({"type": "SOH", "data": soh_stats})
                         self.last_soh_update = time.time()
 
         except Exception:
@@ -114,7 +116,7 @@ class Reader(Process):
         timestamp = time.time()
         packet = data.to_dict(timestamp, self.channels)
 
-        self.pub_socket.send_json(packet)
+        self.pub_socket.send_pyobj(packet)
 
     def __map_channels(self):
         return {i.adc_channel: i for i in self.settings.channels}

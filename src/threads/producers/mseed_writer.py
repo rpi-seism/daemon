@@ -1,6 +1,7 @@
 import time
 from logging import getLogger
 from multiprocessing import Event, Queue
+from os import getpid
 from pathlib import Path
 from queue import Full
 from threading import Thread
@@ -59,6 +60,7 @@ class MSeedWriter(Thread):
         self._is_processing_event = False
 
     def run(self):
+        logger.info("Mseed writer started. PID: %d", getpid())
         next_write_time = time.time() + self.write_interval_sec
 
         context = zmq.Context()
@@ -75,7 +77,7 @@ class MSeedWriter(Thread):
 
             try:
                 # Receive one packet at a time
-                packet = sub_socket.recv_json()
+                packet = sub_socket.recv_pyobj()
 
                 if packet.get("type") == "packet":
                     ts = packet["timestamp"]

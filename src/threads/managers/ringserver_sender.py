@@ -1,27 +1,26 @@
+import time
+from io import BytesIO
+from logging import getLogger
 from multiprocessing import Event
+from os import getpid
 from threading import Thread
 
-import zmq
-import time
-from logging import getLogger
-from io import BytesIO
-
-from obspy import Trace, UTCDateTime
 import numpy as np
-from rpi_seism_common.settings import Settings
-
+import zmq
 from datalink_client import DataLink, DataLinkError
+from obspy import Trace, UTCDateTime
+from rpi_seism_common.settings import Settings
 
 logger = getLogger(__name__)
 
 
 class RingServerSender(Thread):
     def __init__(
-            self,
-            settings: Settings,
-            shutdown_event: Event,
-            zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc"
-        ):
+        self,
+        settings: Settings,
+        shutdown_event: Event,
+        zmq_endpoint: str = "ipc:///tmp/seismic_data.ipc",
+    ):
         super().__init__(daemon=True)
         self.settings = settings
         self.shutdown_event = shutdown_event
@@ -36,7 +35,7 @@ class RingServerSender(Thread):
         self.client = None
 
     def run(self):
-        logger.info("RingServer sender started")
+        logger.info("RingServer sender started. PID: %d", getpid())
         next_write_time = time.time() + self.write_interval_sec
 
         context = zmq.Context()
@@ -54,7 +53,7 @@ class RingServerSender(Thread):
 
             # Consume Queue
             try:
-                packet = sub_socket.recv_json()
+                packet = sub_socket.recv_pyobj()
 
                 if packet.get("type") != "packet":
                     continue
@@ -86,11 +85,15 @@ class RingServerSender(Thread):
     def _attempt_connection(self):
         try:
             # Create client (host, port)
-            self.client = DataLink(self.ring_server_settings.host, self.ring_server_settings.port)
+            self.client = DataLink(
+                self.ring_server_settings.host, self.ring_server_settings.port
+            )
             self.client.connect()
 
             # Identify is crucial for Ringserver to accept the stream
-            server_id = self.client.identify(clientid=f"{self.settings.station.station}_{self.settings.station.station}")
+            server_id = self.client.identify(
+                clientid=f"{self.settings.station.station}_{self.settings.station.station}"
+            )
             logger.info("Connected to Ringserver: %s", server_id)
         except Exception as e:
             logger.error("DataLink connection failed: %s", e)
@@ -114,14 +117,21 @@ class RingServerSender(Thread):
             # This sends all channels in one network burst
             with self.client.batch():
                 for ch, values in self._buffer.items():
-                    if not values: continue
+                    if not values:
+                        continue
 
                     # Create MiniSEED
                     trace = Trace(data=np.array(values, dtype=np.int32))
-                    trace.stats.update({
-                        'network': net, 'station': sta, 'location': loc, 
-                        'channel': ch, 'starttime': start_utc, 'sampling_rate': rate
-                    })
+                    trace.stats.update(
+                        {
+                            "network": net,
+                            "station": sta,
+                            "location": loc,
+                            "channel": ch,
+                            "starttime": start_utc,
+                            "sampling_rate": rate,
+                        }
+                    )
 
                     buf = BytesIO()
                     trace.write(buf, format="MSEED", reclen=512)
@@ -129,7 +139,7 @@ class RingServerSender(Thread):
 
                     # DataLink 1.1 uses microseconds for timestamps
                     # The library's write() actually takes ints/strings
-                    # but converts them if needed. 
+                    # but converts them if needed.
                     # Based on your source, we pass them as microseconds:
                     start_us = int(trace.stats.starttime.timestamp * 1_000_000)
                     end_us = int(trace.stats.endtime.timestamp * 1_000_000)
