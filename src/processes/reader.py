@@ -39,7 +39,7 @@ class Reader(Process):
         ) * 5  # 5 minutes of data at 100 Hz for 3 channels
 
         self.baudrate = settings.jobs_settings.reader.baudrate
-        self.heartbeat_interval = 0.5  # Send pulse every 500ms
+        self.connection_timeout = 2.0
         self.last_heartbeat = 0
         self.last_soh_update = 0
 
@@ -57,18 +57,21 @@ class Reader(Process):
             with serial.Serial(self.port, self.baudrate, timeout=0.1) as ser:
                 logger.info("Connected to RS-422 on %s at %d", self.port, self.baudrate)
 
-                if not self._sendSettings(ser):
+                if not self._sendSettings(ser, is_initial_connect=True):
                     raise MCUNoResponse("MCU did not respond to settings update.")
 
                 # Buffer to store incoming bytes
                 buffer = bytearray()
+                self.last_packet_time = time.time()
 
                 while not self.shutdown_event.is_set():
-                    # send Heartbeat to keep Arduino streaming
-                    if time.time() - self.last_heartbeat > self.heartbeat_interval:
-                        ser.write(b"\x01")  # Send pulse
-                        ser.flush()  # Wait for bits to leave the UART
-                        self.last_heartbeat = time.time()
+                    elapsed = time.time() - self.last_packet_time
+                    if elapsed > self.connection_timeout:
+                        # If we haven't seen a packet, the Arduino might be in STOP mode
+                        # because its buffer got full. We "poke" it by sending settings again.
+                        logger.warning(f"No data for {elapsed:.1f}s. Re-poking MCU...")
+                        self._sendSettings(ser)
+                        self.last_packet_time = time.time()
 
                     # read available data
                     if ser.in_waiting > 0:
@@ -82,6 +85,7 @@ class Reader(Process):
 
                             sample, checksum = Sample.from_bytes(packet_data)
                             if checksum:
+                                self.last_packet_time = time.time()
                                 self._process_packet(sample)
                                 self.soh_tracker.record_success()
                                 del buffer[
@@ -121,8 +125,10 @@ class Reader(Process):
     def __map_channels(self):
         return {i.adc_channel: i for i in self.settings.channels}
 
-    def _sendSettings(self, ser: serial.Serial):
-        time.sleep(2)  # Wait to arduino to reboot
+    def _sendSettings(self, ser: serial.Serial, is_initial_connect: bool = False):
+        if is_initial_connect:
+            time.sleep(2)  # Wait to arduino to reboot
+
         sent_bytes = MCUSettingsFrame.from_settings(
             self.settings
         ).to_bytes()  # This should be your 6-byte packet
@@ -135,6 +141,8 @@ class Reader(Process):
 
         # Wait for Echo/Response
         logger.info("Waiting for MCU confirmation...")
+
+        ser.reset_input_buffer()
 
         # We look for the headers (0xCC 0xDD) in the response to ensure alignment
         response = b""

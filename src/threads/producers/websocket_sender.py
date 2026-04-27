@@ -68,6 +68,7 @@ class WebSocketSender(Thread):
         self.sub_socket = self.ctx.socket(zmq.SUB)
         self.sub_socket.connect(self.zmq_endpoint)
         self.sub_socket.setsockopt_string(zmq.SUBSCRIBE, "")  # Subscribe to all
+        self.sub_socket.setsockopt(zmq.RCVTIMEO, 100)
 
         async with websockets.serve(self._handle_connection, self.host, self.port):
             logger.info(
