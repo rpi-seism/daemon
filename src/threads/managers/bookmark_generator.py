@@ -26,6 +26,9 @@ class BookmarkGenerator(Thread):
         self.events: list[datetime] = []
         self.processed_ids = set()
 
+        self.last_update = 0
+        self.last_trigger_time = 0
+
     def run(self):
         if not self.bookmarks_settings.enabled:
             return
@@ -34,17 +37,28 @@ class BookmarkGenerator(Thread):
 
         while not self.shutdown_event.is_set():
             try:
-                if self.earthquake_event.is_set() and not self.last_trigger:
+                if (
+                    self.earthquake_event.is_set()
+                    and not self.last_trigger
+                    and time.time() - self.last_trigger_time > 60
+                ):
                     self.last_trigger = True
+                    self.last_trigger_time = time.time()
                     self.events.append(datetime.now(UTC))
+                    logger.info(
+                        "Earthquake event detected, adding timestamp for bookmark generation."
+                    )
 
                 elif not self.earthquake_event.is_set() and self.last_trigger:
                     self.last_trigger = False
 
-                if self.events:
+                if (
+                    self.events and time.time() - self.last_update > 60
+                ):  # Check every minute
                     self._request_events()
+                    self.last_update = time.time()
 
-                time.sleep(10)
+                time.sleep(0.5)  # Sleep briefly to reduce CPU usage
             except Exception:
                 logger.exception("Error in Trigger Processor loop")
 
