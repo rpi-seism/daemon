@@ -2,13 +2,15 @@ import logging
 from multiprocessing import Event, Process, Queue
 from pathlib import Path
 
+from rpi_seism_common.settings import Settings
+
 logger = logging.getLogger(__name__)
 
 
 class Producers(Process):
     def __init__(
         self,
-        settings,
+        settings: Settings,
         data_base_folder: Path,
         shutdown_event: Event,
         trigger_event: Event,

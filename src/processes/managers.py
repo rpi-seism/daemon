@@ -1,12 +1,18 @@
 import logging
 from multiprocessing import Event, Process
 
+from rpi_seism_common.settings import Settings
+
 logger = logging.getLogger(__name__)
 
 
 class Managers(Process):
     def __init__(
-        self, settings, shutdown_event: Event, trigger_event: Event, zmq_addr: str
+        self,
+        settings: Settings,
+        shutdown_event: Event,
+        trigger_event: Event,
+        zmq_addr: str,
     ):
         super().__init__(name="ManagersProcess")
         self.settings = settings
@@ -16,8 +22,9 @@ class Managers(Process):
 
     def run(self):
         from src.threads.managers import (
+            BookmarkGenerator,
             NotifierSender,
-            RingServerSender
+            RingServerSender,
         )
 
         logger.info("Starting Managers Process (Notifier + RingServer)")
@@ -36,6 +43,12 @@ class Managers(Process):
                 self.settings, self.shutdown_event, self.zmq_addr
             )
             jobs.append(ringser_job)
+
+        if self.settings.jobs_settings.bookmark_generator.enabled:
+            bookmark_generator_job = BookmarkGenerator(
+                self.settings, self.shutdown_event, self.trigger_event
+            )
+            jobs.append(bookmark_generator_job)
 
         # Start all enabled jobs
         for job in jobs:
